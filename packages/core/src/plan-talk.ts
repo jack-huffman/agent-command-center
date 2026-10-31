@@ -1,8 +1,10 @@
 /**
- * Talking a plan through (T-98): a person's messages to the planning agent, its replies, and the changes it
- * proposes, kept with the task in the state folder beside its plan. Each message resumes the plan's own
- * session, read-only, with the same tools and hook as making the plan. A proposal changes nothing until the
- * person uses it. A note records to the plan as the person, and so does a Claude Code session opened on it.
+ * Talking a plan through (T-98), and discussing the whole ticket (T-169): a person's messages to the planning
+ * agent, its replies, and the changes it proposes, kept with the task in the state folder beside its plan: one
+ * conversation per ticket. Each message gives the agent everything acc knows about the ticket (ticket-context.ts)
+ * and resumes the plan's own session, read-only, with the same tools and hook as making the plan. A proposal
+ * changes nothing until the person uses it. A note records to the plan as the person, and so does a Claude Code
+ * session opened on it.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -13,16 +15,16 @@ import { type Analysis, analystDir, analystEnv, analystFlags, analyzing, answerA
 import { writeAtomic } from './atomic.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
 import type { Config } from './config.ts';
-import { AccError, type RunResult, type Runner } from './exec.ts';
-import { mutate, readLedger } from './ledger.ts';
+import { AccError, run, type RunResult, type Runner } from './exec.ts';
+import { mutate, readLedger, type Task } from './ledger.ts';
 import { alive } from './lock.ts';
 import { sessionName } from './names.ts';
 import type { RepoPaths } from './paths.ts';
 import { choosePlan } from './plan-choices.ts';
-import { readPlanTicket, ticketLines, ticketWithout } from './plan-ticket.ts';
 import { askOf, choiceName, lapse, planVersion, recommendedName } from './plan.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { askedLine, parseQuestions, QUESTIONS_SCHEMA, REPLY_RULES, type TalkAsk, turnQuestions } from './talk-questions.ts';
+import { readTicketPack } from './ticket-context.ts';
 
 /** Who said it: the person, the planning agent, a Claude Code session the person opened, or a new version of the plan. */
 export type TalkWho = 'you' | 'agent' | 'claude-code' | 'plan';
@@ -193,11 +195,11 @@ export const TALK_SCHEMA = {
   },
 } as const;
 
-/** What the planning agent is told on each message, beside its own session's history. */
+/** What the planning agent is told on each message, beside its own session's history: about the whole ticket (T-169). */
 export const TALK_SYSTEM = [
-  'You made this plan. Now the person who decides talks it through with you: they ask why, push back on an option, or suggest another.',
-  'Answer from the code, and on Salesforce from the org: read again what you need, and say what you read. Never guess.',
-  'You can\'t change anything: no edits, no writes, no deploys, and never the plan itself. When you suggest a change to the plan, give it as a proposal. The person uses it or not. Never say a change is made.',
+  'You are this ticket\'s planning agent. The person who decides discusses the ticket with you: what it asks, its plan, what the work changed, where it is deployed, its checks, its review, and why it is blocked. They ask why, push back on an option, or suggest another.',
+  'Each message starts with everything acc knows about the ticket now. Answer from it, from the code, and on Salesforce from the org: read again what you need, and say what you read. Never guess.',
+  'You can\'t change anything: no edits, no writes, no deploys, and never the plan itself. While the ticket waits to be built, give a change you suggest to the plan as a proposal: the person uses it or not. Once it is being built, the plan is settled: propose nothing. Never say a change is made.',
   'Agree when they are right, and say so plainly when they are not, with the reason.',
   REPLY_RULES,
   'Be concrete and brief: names, files, numbers. No filler.',
@@ -218,24 +220,31 @@ function standing(a: Analysis): string[] {
   ];
 }
 
-/** The message to the planning agent: what it's about, the person's words, and the plan as it stands now. */
-export function talkPrompt(a: Analysis, text: string, about: TalkQuote | null): string {
+/**
+ * The message to the planning agent (T-169): everything acc knows about the ticket (`pack`, ticket-context.ts),
+ * what it's about, the person's words, and while the plan can change (`open`), the plan as it stands now with its
+ * ids. With no plan, or past the build, it asks for no proposal.
+ */
+export function talkPrompt(a: Analysis | null, text: string, about: TalkQuote | null, pack = '', open = true): string {
   return [
+    ...(pack ? [pack, ''] : []),
     '# The person says',
     '',
     ...(about ? [`About ${about.kind} ${about.ref}: "${about.text}"`, ''] : []),
     text.trim(),
     '',
-    ...standing(a),
-    'Answer them. Give each change you suggest to the plan as a proposal, using the ids above, and each question as a question item.',
+    ...(a && open
+      ? [...standing(a), 'Answer them. Give each change you suggest to the plan as a proposal, using the ids above, and each question as a question item.']
+      : ['Answer them, and give each question as a question item. The plan is settled, or there is none yet: propose nothing.']),
   ].join('\n');
 }
 
 /**
  * The reply from Claude Code's JSON result, each proposal checked against the plan: one that names a choice,
- * an option or a question the plan doesn't have, or carries no words where it needs them, is left out.
+ * an option or a question the plan doesn't have, or carries no words where it needs them, is left out. With no
+ * plan to change (null: none, or past the build, T-169), every proposal is left out.
  */
-export function parseTalkReply(stdout: string, a: Analysis): { reply: string; proposals: TalkProposal[]; questions: TalkAsk[]; sessionId: string | null; costUsd: number | null } {
+export function parseTalkReply(stdout: string, a: Analysis | null): { reply: string; proposals: TalkProposal[]; questions: TalkAsk[]; sessionId: string | null; costUsd: number | null } {
   let r: Record<string, any>;
   try {
     r = JSON.parse(stdout.trim().split('\n').filter(Boolean).pop() ?? '');
@@ -246,11 +255,11 @@ export function parseTalkReply(stdout: string, a: Analysis): { reply: string; pr
   if (r.is_error || !s || typeof s.reply !== 'string' || !s.reply.trim()) throw new AccError('talk', `The planning agent didn't reply (${r.subtype ?? 'no result'}): ${String(r.result ?? '').slice(0, 300)}`);
   const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
   const proposals: TalkProposal[] = [];
-  for (const p of Array.isArray(s.proposals) ? s.proposals : []) {
+  for (const p of a && Array.isArray(s.proposals) ? s.proposals : []) {
     const kind = str(p?.kind);
     const text = str(p?.text);
     const why = str(p?.why);
-    const d = a.decisions?.find((x) => x.id === str(p?.decision).toLowerCase());
+    const d = a!.decisions?.find((x) => x.id === str(p?.decision).toLowerCase());
     const next = { id: `p${proposals.length + 1}`, why };
     if (kind === 'choose') {
       const o = d?.options.find((x) => x.name.toLowerCase() === str(p.option).toLowerCase() || x.id === str(p.option).toLowerCase());
@@ -258,7 +267,7 @@ export function parseTalkReply(stdout: string, a: Analysis): { reply: string; pr
     } else if (kind === 'own') {
       if (d && text) proposals.push({ ...next, kind, decision: d.id, text });
     } else if (kind === 'answer') {
-      const q = a.questions.find((x) => x.id === str(p.question).toLowerCase());
+      const q = a!.questions.find((x) => x.id === str(p.question).toLowerCase());
       if (q && text) proposals.push({ ...next, kind, question: q.id, text });
     } else if (kind === 'note' && text) {
       proposals.push({ ...next, kind, text });
@@ -283,39 +292,52 @@ export interface TalkDeps {
   steps?: Steps;
 }
 
-/** The plan to talk about, or why not: no task, built already, no plan, or one being made. */
-function planToTalk(paths: RepoPaths, id: string): Analysis {
+/**
+ * The ticket to discuss (T-169), its plan, and whether the plan can still change; or why not: no task, or its plan
+ * being made. A task waiting to be built with no plan starts one with a conversation instead (acc plan start).
+ */
+function ticketToTalk(paths: RepoPaths, id: string): { task: Task; a: Analysis | null; open: boolean } {
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);
-  if (task.state !== 'todo') throw new AccError('refused', `${id} isn't waiting to be built, so its plan is settled. Talk a plan through before it's built.`);
   if (analyzing(paths, id)) throw new AccError('refused', `${id}'s plan is being made. Wait for it to finish.`);
   const a = readAnalysis(paths, id);
-  if (!a) throw new AccError('no-analysis', `${id} has no plan yet: acc analyze ${id}.`);
-  return a;
+  if (!a && task.state === 'todo') throw new AccError('no-analysis', `${id} has no plan yet: start one with acc plan start ${id}, or acc analyze ${id}.`);
+  return { task, a, open: task.state === 'todo' && !!a };
 }
 
 /**
- * A person's message about the plan, and the planning agent's reply (T-98). It resumes the plan's session
- * read-only, with the same tools and hook as making the plan; the reply's proposals change nothing until the
- * person uses one. The person's message is kept first, so a reply that fails still shows what was asked.
+ * The session a message about a ticket with no plan resumes (T-169): the agent's last reply's, or null before its
+ * first. The opening conversation's `openingSession` is this over its own turns.
  */
-export function talkPlan(paths: RepoPaths, config: Config, id: string, message: string, ref: string | null, deps: TalkDeps, by: string): { turn: TalkTurn; reply: TalkTurn } {
+export const lastSession = (t: Pick<PlanTalk, 'turns'>): string | null => [...t.turns].reverse().find((x) => x.who === 'agent' && x.sessionId)?.sessionId ?? null;
+
+/**
+ * A person's message about the ticket, and the planning agent's reply (T-98, T-169). Each message gives the agent
+ * everything acc knows about the ticket now (ticket-context.ts). It resumes the plan's session read-only, with the
+ * same tools, hook and model as making the plan; a ticket built with no plan starts a session of its own, and
+ * later messages resume it. While the ticket waits to be built, the reply may propose changes to the plan, which
+ * change nothing until the person uses one; past the build it proposes none. The person's message is kept first,
+ * so a reply that fails still shows what was asked.
+ */
+export function talkPlan(paths: RepoPaths, config: Config, id: string, message: string, ref: string | null, deps: TalkDeps & { uuid?: () => string }, by: string): { turn: TalkTurn; reply: TalkTurn } {
   const { run, now } = deps;
   const steps = deps.steps ?? NO_STEPS;
-  const { a, about, text } = steps.step('plan', 'Check the plan', () => {
-    const a = planToTalk(paths, id);
+  const { task, a, open, about, text } = steps.step('plan', 'Check the ticket', () => {
+    const { task, a, open } = ticketToTalk(paths, id);
     if (talking(paths, id)) throw new AccError('refused', `The planning agent is still answering about ${id}. Wait for its reply.`);
     const text = message.trim();
     if (!text) throw new AccError('usage', 'Say something to the planning agent.');
     if (text.length > TALK_MAX) throw new AccError('usage', `Your message is longer than ${TALK_MAX} characters.`);
-    const about = ref ? quoteOf(a, ref) : null;
+    const about = ref && a ? quoteOf(a, ref) : null;
     if (ref && !about) throw new AccError('usage', `${id}'s plan has no ${ref}. Name a choice (d1), an option (d1.a), a step (s1), a risk (r1) or a question (q1).`);
-    return { a, about, text };
+    return { task, a, open, about, text };
   });
-  const v = planVersion(a);
+  const v = a ? planVersion(a) : 0;
+  const pack = steps.step('pack', 'Read what acc knows about the ticket', () => readTicketPack(paths, config, id, run) ?? '');
   const turn = addTurn(paths, id, { who: 'you', by, at: now().toISOString(), version: v, text, ...(about ? { about } : {}) });
-  const session = talkSession(a, readTalk(paths, id));
-  const cwd = analystDir(paths, config, id, true);
+  const resume = a ? talkSession(a, readTalk(paths, id)) : lastSession(readTalk(paths, id));
+  const session = resume ?? (deps.uuid ?? randomUUID)();
+  const cwd = analystDir(paths, config, id, !!resume);
   const marker = talkingPath(paths, id);
   writeFileSync(marker, JSON.stringify({ pid: process.pid, startedAt: now().toISOString(), sessionId: session } satisfies Talking));
   steps.start('talk', 'Ask the planning agent', 'It reads again, and changes nothing');
@@ -323,10 +345,11 @@ export function talkPlan(paths: RepoPaths, config: Config, id: string, message: 
   let out: RunResult;
   try {
     out = run('claude', [
-      '-p', '--resume', session, '--permission-mode', 'dontAsk', ...roleArgs(config, 'planner'),
+      '-p', ...(resume ? ['--resume', resume] : ['--session-id', session, '--name', sessionName({ project: config.project, key: id, title: task.title, role: 'analysis' })]),
+      '--permission-mode', 'dontAsk', ...roleArgs(config, 'planner'),
       '--output-format', 'json', '--json-schema', JSON.stringify(TALK_SCHEMA), '--append-system-prompt', TALK_SYSTEM,
       ...analystFlags(paths, config, cwd, deps.accCommand),
-    ], { cwd, input: talkPrompt(a, text, about), env: analystEnv(config, deps.env, id), timeoutMs: 20 * 60_000 });
+    ], { cwd, input: talkPrompt(a, text, about, pack, open), env: analystEnv(config, deps.env, id), timeoutMs: 20 * 60_000 });
   } finally {
     awake?.release();
     rmSync(marker, { force: true });
@@ -341,7 +364,7 @@ export function talkPlan(paths: RepoPaths, config: Config, id: string, message: 
   if (out.code === 127 && !out.stdout) fail(`Claude Code didn't start: ${out.stderr.trim().split('\n')[0] ?? 'claude not found'}`);
   let parsed: ReturnType<typeof parseTalkReply>;
   try {
-    parsed = parseTalkReply(out.stdout, a);
+    parsed = parseTalkReply(out.stdout, open ? a : null);
   } catch (e) {
     return fail((e as Error).message);
   }
@@ -352,7 +375,7 @@ export function talkPlan(paths: RepoPaths, config: Config, id: string, message: 
   ].filter(Boolean);
   steps.done('talk', said.length ? `It ${said.join(' and ')}` : 'It replied');
   const reply = steps.step('save', 'Keep the reply', () => addTurn(paths, id, {
-    who: 'agent', by: a.name ?? `analyst:${id}`, at: now().toISOString(), version: v, text: parsed.reply, proposals: parsed.proposals, questions: parsed.questions,
+    who: 'agent', by: a?.name ?? `analyst:${id}`, at: now().toISOString(), version: v, text: parsed.reply, proposals: parsed.proposals, questions: parsed.questions,
     sessionId: parsed.sessionId ?? session, costUsd: parsed.costUsd,
   }));
   return { turn, reply };
@@ -480,39 +503,23 @@ export function versionTurn(paths: RepoPaths, a: Analysis, by: string): void {
   addTurn(paths, a.task, { who: 'plan', by, at: a.at, version: planVersion(a), text: `Made v${planVersion(a)} from this conversation.`, recorded: a.changes ?? [] });
 }
 
-/** The brief a Claude Code session reads: the ticket, the latest plan, the conversation, and how to record to the plan. */
-export function claudeBrief(paths: RepoPaths, id: string): string {
+/**
+ * The brief a Claude Code session reads (T-169): everything acc knows about the ticket, as each message of its
+ * conversation gives the agent (ticket-context.ts), the conversation so far, and while the ticket waits to be
+ * built, how to record to the plan. Past the build, or with no plan, it records nothing.
+ */
+export function claudeBrief(paths: RepoPaths, config: Pick<Config, 'profile'>, id: string, runner: Runner = run): string {
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+  const pack = readTicketPack(paths, config, id, runner);
+  if (!task || !pack) return '';
   const a = readAnalysis(paths, id);
-  if (!task || !a) return '';
   const t = readTalk(paths, id);
+  const head = [pack, '', ...(t.turns.length ? ['## The conversation so far', '', ...talkLines(t, a), ''] : [])];
+  if (!a || task.state !== 'todo') {
+    return [...head, '## What you can do', '', 'You are in plan mode: you read, and change no file. The plan is settled, or there is none yet, so record nothing: answer the person from the code and from what acc knows above.', ''].join('\n');
+  }
   return [
-    `# ${id}: ${task.title}`,
-    '',
-    task.source.url ? `Ticket: ${task.source.url}` : `Source: ${task.source.kind}`,
-    '',
-    // The ticket the plan read, its comments too (T-110); a plan made before plans kept it, the description.
-    ...ticketLines(readPlanTicket(paths, id) ?? ticketWithout(task)),
-    `## The plan, v${planVersion(a)}${a.approval ? ' (approved)' : ''}`,
-    '',
-    a.summary,
-    '',
-    ...(a.decisions ?? []).flatMap((d) => [
-      `### ${d.id}. ${d.title}`,
-      '',
-      d.why,
-      '',
-      ...d.options.map((o) => `- ${o.id}) **${o.name}** (effort ${o.effort})${o.id === d.recommended ? ' [recommended]' : ''}: ${[o.means, o.cons.length ? `Cons: ${o.cons.join('; ')}.` : ''].filter(Boolean).join(' ')}`),
-      '',
-      `Recommends ${recommendedName(d)}: ${d.because}`,
-      d.choice ? `Chosen: **${choiceName(d)}**, by ${d.choice.by}.` : 'Not chosen yet.',
-      '',
-    ]),
-    ...(a.questions.length ? ['### Questions', '', ...a.questions.map((q) => `- ${q.id}. ${q.question} ${q.answer ? `Answered: **${q.answer.text}**` : `Not answered. Suggested: ${q.suggested}`}`), ''] : []),
-    ...(a.approach.plan.length ? ['### The approach', '', ...a.approach.plan.map((s, i) => `${i + 1}. ${s}`), ''] : []),
-    ...(a.approach.risks.length ? ['### Risks', '', ...a.approach.risks.map((r) => `- ${r}`), ''] : []),
-    ...(a.notes?.length ? ['### Notes', '', ...a.notes.map((n) => `- ${n.text}`), ''] : []),
-    ...(t.turns.length ? ['## The conversation so far', '', ...talkLines(t, a), ''] : []),
+    ...head,
     '## Recording to the plan',
     '',
     'You are in plan mode: you read, and change no file. When the person agrees to something, record it to the plan, as them, with one of these:',
@@ -539,22 +546,24 @@ export interface ClaudeLaunch {
 }
 
 /**
- * Open in Claude Code (T-98): an interactive session in the main checkout, in plan mode, that reads the brief
- * first. It may record a choice, an answer or a note through acc. Only Read, Grep and Glob are allowed in
+ * Open in Claude Code (T-98, T-169): an interactive session in the main checkout, in plan mode, that reads the
+ * brief first, with everything acc knows about the ticket. At any state but while its plan is made; a ticket
+ * waiting to be built with no plan starts one with a conversation instead. While the ticket waits to be built,
+ * it may record a choice, an answer or a note through acc. Only Read, Grep and Glob are allowed in
  * advance: acc plan choose, acc plan note and acc analysis answer are not, so Claude Code asks the person
  * before each one runs, and the brief says so. The conversation gets a turn for the session, which shows what
  * it recorded.
  */
-export function openInClaude(paths: RepoPaths, config: Config, id: string, by: string, now: () => Date, uuid: () => string = randomUUID): ClaudeLaunch {
-  const a = planToTalk(paths, id);
-  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id)!;
+export function openInClaude(paths: RepoPaths, config: Config, id: string, by: string, now: () => Date, uuid: () => string = randomUUID, runner: Runner = run): ClaudeLaunch {
+  const { task, a, open } = ticketToTalk(paths, id);
   const brief = briefPath(paths, id);
   mkdirSync(paths.analyses, { recursive: true });
-  writeAtomic(brief, claudeBrief(paths, id));
+  writeAtomic(brief, claudeBrief(paths, config, id, runner));
   const sessionId = uuid();
   const name = sessionName({ project: config.project, key: id, title: task.title, role: 'plan' });
-  addTurn(paths, id, { who: 'claude-code', by, at: now().toISOString(), version: planVersion(a), text: 'Opened the plan in Claude Code.', sessionId, recorded: [] });
-  const prompt = `Read ${brief} first. It holds ${id}'s ticket, its latest plan and what was said about it. Then talk the plan through with me: answer from the code${config.profile === 'salesforce' ? ' and the org' : ''}, and record to the plan only what I agree to, as the brief says.`;
+  addTurn(paths, id, { who: 'claude-code', by, at: now().toISOString(), version: a ? planVersion(a) : 0, text: 'Opened the ticket in Claude Code.', sessionId, recorded: [] });
+  const from = `answer from the code${config.profile === 'salesforce' ? ' and the org' : ''}`;
+  const prompt = `Read ${brief} first. It holds everything acc knows about ${id}: its ticket, its plan, what it changed, its checks, its review and what was said about it. Then discuss the ticket with me: ${from}, ${open ? 'and record to the plan only what I agree to, as the brief says' : 'and change nothing'}.`;
   return {
     cwd: paths.root, sessionId, name, brief,
     // The prompt comes first: --allowedTools takes every argument after it up to the next flag, so a prompt after it

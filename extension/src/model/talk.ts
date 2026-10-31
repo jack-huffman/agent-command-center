@@ -1,7 +1,7 @@
 /**
- * Talk it through, on a task's page (T-98): the person's messages to the planning agent and its replies, each
- * with who and when, what a message is about quoted, each change a reply proposes with Use this, and what a
- * Claude Code session opened on the plan recorded. Send, Make a new plan and Open in Claude Code, each off
+ * A ticket's conversation (T-98, T-169): the person's messages to the planning agent about the ticket and its
+ * replies, each with who and when, what a message is about quoted, each change a reply proposes with Use this, and
+ * what a Claude Code session opened on it recorded. Send, Make a new plan and Open in Claude Code, each off
  * with why when they can't be used. Plain data and the messages' checks: no vscode import.
  */
 
@@ -34,8 +34,11 @@ export const TALK_LOOK: Record<'none' | 'running' | 'said', Look> = {
   said: { label: 'Talked through', icon: 'comment-discussion', tone: 'blue' },
 };
 
-/** What the section says first: what talking does, and that nothing changes without the person. */
-export const TALK_NOTE = 'Ask the planning agent why, push back on an option, or suggest another. It answers from the code and the org, and changes nothing: a change it proposes goes into the plan only when you use it.';
+/**
+ * What the conversation says first (T-169): what the person can ask about the ticket, and that nothing changes
+ * without them.
+ */
+export const TALK_NOTE = 'Ask anything about this ticket: what it asks, why the plan chose what it did, what the work changed, where it\'s deployed, what the checks and the review found, or why it\'s blocked. The planning agent reads all of that, the code and the org, and changes nothing. While the plan can still change, a change it proposes goes in only when you use it.';
 
 /** A reply's proposal on the page: what it would record, why, and Use this, or who used it. */
 export interface TicketProposal {
@@ -186,12 +189,12 @@ function askFirst(p: TalkProposal, a: Analysis): string | null {
 /** A turn's words, and what a reply kept before T-113 was unsure of, under them. */
 const words = (t: TalkTurn): string => (t.unsure?.length ? `${t.text}\n\nNot sure yet:\n${t.unsure.map((u) => `- ${u}`).join('\n')}` : t.text);
 
-/** The questions the agent's last reply asks, while they wait for the person; else null. */
-function openQuestions(i: TalkIn, todo: boolean): TicketTalk['questions'] {
+/** The questions the agent's last reply asks, while they wait for the person, at any state (T-169); else null. */
+function openQuestions(i: TalkIn): TicketTalk['questions'] {
   const last = i.talk.turns.at(-1);
   const items = last?.who === 'agent' ? turnQuestions(last) : [];
   const version = i.analysis ? planVersion(i.analysis) : 0;
-  if (!todo || !last || !items.length || last.version !== version) return null;
+  if (!last || !items.length || last.version !== version) return null;
   return { turn: last.id, items: items.map((q) => ({ question: q.question, why: q.why, options: q.options.slice(0, OPTIONS_MAX).map((label, k) => ({ label, suggested: k === 0 })) })), optionsMax: OPTIONS_MAX, answerMax: ANSWER_MAX };
 }
 
@@ -219,19 +222,20 @@ function ticketTurns(i: TalkIn, todo: boolean, busy: string | null): TicketTurn[
 
 /**
  * A task's conversation with its planning agent. Before there is a plan, the opening conversation (T-111): its
- * question first, Send, Draft the plan and Skip to the plan. With a plan, Talk it through (T-98): Send, Make a
- * new plan and Open in Claude Code. Each is only before the build. Null past the build with nothing said.
+ * question first, Send, Draft the plan and Skip to the plan. With a plan, or past the build, the ticket's
+ * conversation (T-98, T-169): Send and Open in Claude Code at any state, and before the build Make a new plan and
+ * each proposal's Use this.
  */
 export function ticketTalk(i: TalkIn): TicketTalk | null {
   const a = i.analysis;
   const todo = i.task.state === 'todo';
-  if (!a && !todo && !i.talk.turns.length) return null;
   const making = i.making ?? (i.analyzing ? 'planning' : null);
   const busy = making ? 'Its plan is being made. Wait for it to finish.' : i.running ? 'Wait for the planning agent\'s reply.' : null;
   const said = i.talk.turns.some((t) => t.who === 'you' || t.who === 'claude-code');
   const messages = i.talk.turns.filter((t) => t.who !== 'plan').length;
   const last = i.talk.turns.at(-1);
-  const opening = !a;
+  // With no plan before the build, the conversation that starts one (T-111); past the build, the ticket's own.
+  const opening = !a && todo;
   const before = i.talk.turns.some((t) => t.who === 'you' && isOpening(t));
   return {
     task: i.task.id,
@@ -241,15 +245,15 @@ export function ticketTalk(i: TalkIn): TicketTalk | null {
     ask: opening && !before ? OPENING_ASK : null,
     turns: ticketTurns(i, todo, busy),
     line: messages && last ? { words: conversationWords(messages), at: last.at } : null,
-    send: todo ? { disabled: busy } : null,
+    send: { disabled: busy },
     running: i.running,
     newPlan: !opening && todo && said ? { command: 'acc.task.analyze', label: 'Make a new plan', icon: 'refresh', ref: i.ref, ...(busy ? { disabled: busy } : {}) } : null,
-    claude: !opening && todo ? { disabled: i.analyzing ? 'Its plan is being made. Wait for it to finish.' : null } : null,
+    claude: !opening ? { disabled: i.analyzing ? 'Its plan is being made. Wait for it to finish.' : null } : null,
     draft: opening && todo ? { disabled: busy ?? (before ? null : 'Say what you\'re thinking first, or skip to the plan.') } : null,
     skip: opening && todo ? { disabled: busy } : null,
     making: making ? { phase: making, words: MAKING_WORDS[making] } : null,
     progress: making || i.running ? i.progress ?? null : null,
-    questions: openQuestions(i, todo),
+    questions: openQuestions(i),
     earlier: earlierTurns(i.talk),
   };
 }

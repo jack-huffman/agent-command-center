@@ -56,6 +56,18 @@ export function openTalk(project: string, task: string, about?: { ref: string; t
 }
 
 /**
+ * Discuss, in the ticket's header (T-169): opens the ticket's one conversation, with nothing quoted. Null for a
+ * ticket the Command Center doesn't keep, which has no conversation.
+ */
+export function headerDiscuss(project: string, task: string, s: TicketTalk | null | undefined): HTMLButtonElement | null {
+  if (!s) return null;
+  const b = button('Discuss', 'comment-discussion', () => openTalk(project, task), 'ghost');
+  b.title = 'Discuss this ticket with its planning agent, which knows its plan, changes, checks and review';
+  b.setAttribute('aria-label', `Discuss ${task}`);
+  return b;
+}
+
+/**
  * Discuss on a choice, an option, a step, a risk or a question (T-98): opens the conversation with it quoted.
  * Its name says what it's about, for a screen reader.
  */
@@ -245,7 +257,7 @@ function composer(project: string, s: TicketTalk, left: HTMLElement[]): HTMLElem
   box.maxLength = TALK_MAX;
   box.value = memory().drafts[key] ?? '';
   box.dataset.keep = key;
-  box.placeholder = s.stage === 'opening' ? 'What you want to do, and what you\'re thinking' : 'Ask why, push back, or suggest another way';
+  box.placeholder = s.stage === 'opening' ? 'What you want to do, and what you\'re thinking' : 'Ask about the ticket, push back, or suggest another way';
   box.setAttribute('aria-label', 'Your message to the planning agent');
   box.addEventListener('input', () => { remember((x) => { x.drafts[key] = box.value; }); });
   const why = s.send?.disabled ?? (busy ? 'Wait for your message to go' : null);
@@ -302,7 +314,7 @@ function planButtons(project: string, s: TicketTalk): HTMLElement[] {
 export function renderConversation(project: string, s: TicketTalk): HTMLElement {
   const sec = el('section', `talk tone-edge-${s.look.tone}`);
   sec.id = 'talk';
-  sec.setAttribute('aria-label', `${s.stage === 'opening' ? 'Before the plan' : 'Talk it through'}: ${s.look.label}`);
+  sec.setAttribute('aria-label', `${s.stage === 'opening' ? 'Before the plan' : 'Discuss the ticket'}: ${s.look.label}`);
   const log = chatLog('The conversation');
   // No icon of its own: the panel's title carries the conversation's (T-129).
   if (s.ask) log.append(el('h2', 'talk-ask', el('span', '', s.ask)));
@@ -347,7 +359,7 @@ export function renderConversation(project: string, s: TicketTalk): HTMLElement 
     }, 'small');
     const why = s.claude.disabled ?? (busy ? 'Wait for it to open' : null);
     b.disabled = !!why;
-    b.title = why ?? 'A longer session in Claude Code, in plan mode: it reads, and records to the plan only what you agree to';
+    b.title = why ?? 'A longer session in Claude Code, in plan mode, with everything the Command Center knows about the ticket: it reads, and records to the plan only what you agree to';
     if (why) b.setAttribute('aria-description', why);
     buttons.push(b);
   }

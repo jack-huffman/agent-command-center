@@ -57,7 +57,8 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * for the ticket's author with own words typed, a question already answered, and the approved plan's summary.
  * Then ACME-21 with its plan, criteria and Verify under its description (T-132), open, and collapsed to their header lines.
  * Then a plan's conversation in its own panel (T-111): ACME-21's page before its plan with the conversation's one
- * line, the panel as Make a plan opens it, mid-conversation with a reply on its way, and Talk it through once v2 is made.
+ * line, the panel as Make a plan opens it, mid-conversation with a reply on its way, Talk it through once v2 is made,
+ * and the ticket's conversation as Discuss in its header opens it once in review, with nothing said yet (T-169).
  * Then the agent's questions one at a time, part-way through (T-113), and a long Talk it through, folded.
  * Then the planning agent's progress (T-131): the panel after Draft the plan with its steps, the same once it hasn't moved
  * for six minutes, and ACME-21's page with the progress in its plan section.
@@ -255,6 +256,8 @@ export const PAGES = [
   'conversation-start',
   'conversation',
   'conversation-talk',
+  // The ticket's conversation as Discuss in its header opens it, past the build with nothing said yet (T-169)
+  'conversation-discuss',
   // The agent's questions one at a time, part-way through, and a long conversation folded (T-113); the review before they go (T-130)
   'conversation-questions',
   'conversation-questions-review',

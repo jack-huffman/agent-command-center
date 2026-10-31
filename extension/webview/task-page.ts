@@ -14,7 +14,7 @@ import { renderTeam } from './team.ts';
 import { renderRecords } from './record-changes.ts';
 import { renderField } from './changes-field.ts';
 import { renderManifest } from './manifest.ts';
-import { conversationLine } from './talk.ts';
+import { conversationLine, headerDiscuss } from './talk.ts';
 import { drawNote } from './note.ts';
 import { renderReview } from './review.ts';
 import { collapsible, criteriaSummary, oneLine } from './collapse.ts';
@@ -125,7 +125,8 @@ export function renderTicket(m: TicketModel): Node[] {
   }
   const type = m.type ? fact(typeMark(m.typeIcon, m.typeColor), m.type, 'Type') : null;
   const priority = m.priority ? fact(m.priorityIcon ? icon(m.priorityIcon) : null, m.priority, 'Priority') : null;
-  const tools: Child[] = [];
+  // Discuss (T-169): the ticket's one conversation, first of its tools.
+  const tools: Child[] = [headerDiscuss(m.project, m.key, m.talk)];
   if (m.url) {
     const open = el('button', 'btn ghost', icon('link-external'), KIND_NAME[m.sourceKind] ? `Open in ${KIND_NAME[m.sourceKind]}` : 'Open ticket') as HTMLButtonElement;
     open.type = 'button';

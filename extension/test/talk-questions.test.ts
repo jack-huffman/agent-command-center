@@ -36,9 +36,9 @@ test('the agent\'s last reply\'s questions wait, each with its answers, the sugg
   assert.equal(s.questions?.items[0]!.why, OPENING_QUESTIONS[0]!.why);
 });
 
-test('edge cases: no questions wait once the person said something after, past the build, on another version of the plan, or with none asked; a reply kept before T-113 asks in own words', () => {
+test('edge cases: no questions wait once the person said something after, on another version of the plan, or with none asked; a reply kept before T-113 asks in own words', () => {
   assert.equal(opening(sampleOpening(NOW)).questions, null, 'answered');
-  assert.equal(opening(sampleOpening(NOW, false, 0, true), { task: { id: 'ACME-21', state: 'done' } }).questions, null, 'past the build');
+  assert.equal(opening(sampleOpening(NOW, false, 0, true), { task: { id: 'ACME-21', state: 'done' } }).questions?.items.length, 3, 'past the build they still wait, as the ticket can still be discussed (T-169)');
   assert.equal(opening(sampleOpening(NOW, false, 0, true), { analysis: samplePlan(NOW, 'approved') }).questions, null, 'asked before the plan, and the plan was skipped to');
   assert.equal(opening({ v: 1, task: 'ACME-21', turns: [] }).questions, null, 'nothing said');
   assert.equal(opening(sampleOpening(NOW, true)).questions, null, 'the last reply asks nothing');

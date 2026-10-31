@@ -99,9 +99,9 @@ test('the prompt holds every comment oldest first with its author and date, the 
 test('Talk it through in Claude Code reads the same comments the plan read (D-195)', () => {
   const { paths, config, jira } = setup();
   plan(paths, config, jira.id, () => planTicket(TICKET));
-  const brief = claudeBrief(paths, jira.id);
-  assert.match(brief, /### Kelsey, 2026-10-20\n\nKelsey and Mike will send back the 77 contacts by Wednesday\./);
-  assert.match(brief, /## The plan, v1/);
+  const brief = claudeBrief(paths, config, jira.id);
+  assert.match(brief, /#### Kelsey, 2026-10-20\n\nKelsey and Mike will send back the 77 contacts by Wednesday\./);
+  assert.match(brief, /## The plan and its criteria\n\nVersion 1, not approved\./);
 });
 
 test('edge: a failed read makes the plan from the description, and the plan says the comments weren\'t read and why', () => {

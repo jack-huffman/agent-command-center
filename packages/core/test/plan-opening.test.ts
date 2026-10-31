@@ -15,6 +15,7 @@ import {
 } from '../src/plan-opening.ts';
 import { parsePlanTicket } from '../src/plan-ticket.ts';
 import { readTalk, talking, talkingPath, talkLines, talkPlan, talkSection, talkSession, writeTalk } from '../src/plan-talk.ts';
+import { PACK_HEADS, PACK_PARTS } from '../src/ticket-context.ts';
 import { fakeRunner, GENERIC_CONFIG, makeRepo, SF_CONFIG } from './support.ts';
 
 const now = () => new Date('2026-10-22T12:00:00Z');
@@ -90,15 +91,19 @@ test('the opening message starts a new session read-only, with the whole ticket,
   assert.equal(isOpening(r.reply), true);
 });
 
-test('an answer to the agent\'s questions resumes the same session, without the ticket again', () => {
+test('edge case: a later message on a todo ticket with no plan resumes the same session, and gives the whole context pack again (T-169)', () => {
   const { paths, config, id } = setup();
   const calls: { args: string[]; opts?: RunOptions }[] = [];
   const deps = { run: claude([result(FIRST, 'sess-open'), result({ understood: 'Two years, open and closed.', questions: [] }, 'sess-open')], calls), now, env: {}, uuid: () => 'sess-open' };
   startPlan(paths, config, id, 'Two years.', deps, 'human:me');
   const r = startPlan(paths, config, id, 'Closed deals too.', deps, 'human:me');
   assert.ok(calls[1]!.args.join(' ').startsWith('-p --resume sess-open --permission-mode dontAsk'), calls[1]!.args.join(' ').slice(0, 80));
-  assert.ok(!String(calls[1]!.opts?.input).includes('## The ticket'), 'the session holds the ticket already');
-  assert.match(String(calls[1]!.opts?.input), /# The person says\n\nClosed deals too\./);
+  const later = String(calls[1]!.opts?.input);
+  for (const p of PACK_PARTS) assert.ok(later.includes(`## ${PACK_HEADS[p]}\n`), `the later message gives ${PACK_HEADS[p]}`);
+  assert.match(later, /There is no plan yet\./);
+  assert.match(later, /## The ticket's history\n\n- [^\n]*: added to todo/, 'the ticket as it is now, its history too');
+  assert.ok(!later.includes(OPENING_ASK), 'the opening question is asked once');
+  assert.match(later, /# The person says\n\nClosed deals too\./);
   assert.deepEqual(r.reply.questions, []);
   assert.equal(openingSession(readTalk(paths, id)), 'sess-open');
 });

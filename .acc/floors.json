@@ -1,12 +1,12 @@
 {
   "tests": {
-    "floor": 3502
+    "floor": 3520
   },
   "screenshots.clipped": {
     "floor": 186155
   },
   "screenshots.sideways": {
-    "floor": 9244
+    "floor": 9262
   },
   "screenshots.overview": {
     "floor": 1199
@@ -15,19 +15,13 @@
     "floor": 700
   },
   "screenshots.covered": {
-    "floor": 219,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "The Agents page is cards now, not a table with a sticky actions column, so the covered check measures far fewer sticky cells: 222 at 6a9a3fb after merging main. 1% below it. Approved by the person, 2026-10-31.",
-      "at": "2026-10-31T02:03:23.915Z",
-      "was": 1867
-    }
+    "floor": 225
   },
   "screenshots.raw": {
     "floor": 855
   },
   "screenshots.a11y": {
-    "floor": 729764
+    "floor": 730263
   },
   "screenshots.actions": {
     "floor": 2156
@@ -36,7 +30,7 @@
     "floor": 1793
   },
   "screenshots.sizes": {
-    "floor": 6292
+    "floor": 6309
   },
   "screenshots.ci.a11y": {
     "floor": 622973

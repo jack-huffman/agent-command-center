@@ -36,7 +36,7 @@ export const area: ExtensionArea = {
       // A message runs in the output panel, where the planning agent's steps show (D-171); the rest are quick.
       acc: (args, cwd, label) => (label && sidebar.helpers.runAccShown ? sidebar.helpers.runAccShown(args, cwd, label) : acc(args, cwd)),
       launch(task, l, ended) {
-        const t = code.window.createTerminal({ name: `Plan ${task} in Claude Code`, cwd: l.cwd, env: l.env, iconPath: new code.ThemeIcon('comment-discussion'), ...terminalShell() });
+        const t = code.window.createTerminal({ name: `Discuss ${task} in Claude Code`, cwd: l.cwd, env: l.env, iconPath: new code.ThemeIcon('comment-discussion'), ...terminalShell() });
         terminals.set(t, ended);
         t.show();
         t.sendText(['claude', ...l.args].map(shq).join(' '), true);

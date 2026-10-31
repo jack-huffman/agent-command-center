@@ -152,3 +152,14 @@ export function sampleConversationTicket(now: number): TicketModel {
   const t = sampleTicket(now, 'ACME-21', false, null, null, 'none');
   return { ...t, talk: openingPanel(now, sampleOpening(now, true), false).talk };
 }
+
+/**
+ * ACME-21's conversation as Discuss in its header opens it (T-169), once it is in review: nothing said yet, so the
+ * panel says what the person can ask; Send and Open in Claude Code, and no plan to make or proposal to use.
+ */
+export function sampleConversationDiscuss(now: number): ConversationModel {
+  return conversationModel({
+    project: ROOT, key: 'ACME-21', taskTitle: title(now),
+    talk: ticketTalk({ task: { id: 'ACME-21', state: 'review' }, analysis: samplePlan(now, 'approved'), analyzing: false, talk: { v: 1, task: 'ACME-21', turns: [] }, running: false, open: [], ref: { project: ROOT, task: 'ACME-21' } }),
+  });
+}

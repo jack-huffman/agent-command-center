@@ -9,13 +9,14 @@ import { accCommand, noAgent, now, type Opts, out, project, readFileArg, steps }
 export const TALK_HELP = `  acc plan start <id> "<message>"       Start a plan with a conversation, before it is made: say what you want and
                                         what you're thinking; the planning agent says what it understood, and asks
                                         at most three questions, each with answers. --ticket <file> as for analyze
-  acc plan talk <id> "<message>"        Talk the plan through: the planning agent replies from the code (and the
-                                        org), read-only. --about d1, d1.a, s2, r1 or q1 quotes what it's about
+  acc plan talk <id> "<message>"        Discuss the ticket, at any state: the planning agent gets everything acc
+                                        knows about it, and replies from the code (and the org), read-only.
+                                        --about d1, d1.a, s2, r1 or q1 quotes what it's about
   acc plan use <id> <turn> <proposal>   Use a change the planning agent proposed: a choice, an answer or a note,
                                         recorded as yours. --yes when it changes an approved plan
   acc plan note <id> "<text>"           Add a note to the plan, such as a changed step. --yes on an approved plan
-  acc plan claude <id>                  How to open the plan in Claude Code, in plan mode, with the ticket, the
-                                        plan and the conversation so far`;
+  acc plan claude <id>                  How to open the ticket in Claude Code, in plan mode, with everything acc
+                                        knows about it and the conversation so far`;
 
 /** A reply's questions (T-113), numbered, each with its answers, the suggestion first. */
 const questionLines = (reply: TalkTurn): string[] => turnQuestions(reply).flatMap((q: TalkAsk, i) => [

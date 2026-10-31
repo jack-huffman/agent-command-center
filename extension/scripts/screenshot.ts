@@ -76,7 +76,7 @@ import { samplePlanNeedsYouTicket, sampleTabsTicket } from './fixtures/task-tabs
 import { sampleTalkTicket, TALK_STATE } from './fixtures/talk.ts';
 import { REPORT_TYPED, sampleReport } from './fixtures/report.ts';
 import { sampleProgressPanel, sampleProgressTicket } from './fixtures/plan-progress.ts';
-import { LONG_STATE, QUESTIONS_STATE, REVIEW_STATE, sampleConversation, sampleConversationLong, sampleConversationQuestions, sampleConversationStart, sampleConversationTalk, sampleConversationTicket } from './fixtures/conversation.ts';
+import { LONG_STATE, QUESTIONS_STATE, REVIEW_STATE, sampleConversation, sampleConversationDiscuss, sampleConversationLong, sampleConversationQuestions, sampleConversationStart, sampleConversationTalk, sampleConversationTicket } from './fixtures/conversation.ts';
 import { type ChangesSample, sampleChangesTicket } from './fixtures/changes.ts';
 import { RECORDS_FORM_STATE, sampleRecordsTicket } from './fixtures/record-changes.ts';
 import { type DeploySample, sampleDeployTicket } from './fixtures/ticket-deploy.ts';
@@ -285,6 +285,8 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'conversation-start') return sampleConversationStart(now);
   if (kind === 'conversation') return sampleConversation(now);
   if (kind === 'conversation-talk') return sampleConversationTalk(now);
+  // The ticket's conversation as Discuss in its header opens it, in review with nothing said yet (T-169).
+  if (kind === 'conversation-discuss') return sampleConversationDiscuss(now);
   // The agent's questions one at a time, part-way through and at the review (T-130), and a long Talk it through folded (T-113).
   if (kind === 'conversation-questions' || kind === 'conversation-questions-review') return sampleConversationQuestions(now);
   if (kind === 'conversation-long' || kind === 'conversation-scrolled') return sampleConversationLong(now);

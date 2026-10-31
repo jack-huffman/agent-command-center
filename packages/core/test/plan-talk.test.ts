@@ -203,7 +203,7 @@ test('nothing is written to the project or the ticket: only the state folder cha
   assert.ok(talkPath(paths, id).startsWith(paths.analyses) && briefPath(paths, id).startsWith(paths.analyses), 'the conversation and the brief live with the plan');
 });
 
-test('edge cases: a failed reply keeps the message with why; a talk is refused with no plan, a plan being made, a built task, empty or long words, or an unknown reference', () => {
+test('edge cases: a failed reply keeps the message with why; a talk is refused with no plan before the build, a plan being made, empty or long words, or an unknown reference', () => {
   const { paths, config, id } = setup();
   const failing = fakeRunner({ claude: { code: 1, stdout: JSON.stringify({ is_error: true, subtype: 'error_during_execution', result: 'boom' }), stderr: '' } });
   assert.throws(() => talkPlan(paths, config, id, 'Why?', null, { run: failing, now, env: {} }, 'human:me'), /didn't reply \(error_during_execution\): boom/);
@@ -225,8 +225,6 @@ test('edge cases: a failed reply keeps the message with why; a talk is refused w
   writeFileSync(marker, JSON.stringify({ sessionId: 's', startedAt: '', pid: process.pid }));
   assert.throws(() => talkPlan(paths, config, id, 'Why?', null, ok, 'human:me'), /plan is being made/);
   rmSync(marker);
-  mutate(paths, now, (l, emit) => { l.tasks[0]!.state = 'running'; emit({ type: 'task.moved', task: id, actor: 'human', by: 'test', data: {} }); });
-  assert.throws(() => talkPlan(paths, config, id, 'Why?', null, ok, 'human:me'), /isn't waiting to be built/);
   assert.throws(() => useProposal(paths, id, 't1', 'p1', 'human:me', now), /has no proposal/);
   assert.deepEqual(readTalk(setup().paths, 'NONE-1').turns, [], 'no conversation yet is an empty one');
 });
@@ -260,10 +258,10 @@ test('Open in Claude Code: plan mode in the main checkout, the brief holds the t
   assert.deepEqual(launch.env, { [TALK_SESSION_VAR]: `${id}:cc-1` });
   const brief = readFileSync(launch.brief, 'utf8');
   assert.doesNotMatch(brief, /In Claude Code/, "written before the session's own turn");
-  assert.match(claudeBrief(paths, id), /- In Claude Code \(v1\): Opened the plan in Claude Code\./);
-  assert.match(brief, /# ACME-7: Track stage history/);
+  assert.match(claudeBrief(paths, config, id), /- In Claude Code \(v1\): Opened the ticket in Claude Code\./);
+  assert.match(brief, /# Everything acc knows about ACME-7: Track stage history/);
   assert.match(brief, /Keep each stage change\./);
-  assert.match(brief, /### d1\. Where history is kept/);
+  assert.match(brief, /\*\*Choice d1\. Where history is kept\*\*/);
   assert.match(brief, /a\) \*\*Field history\*\* \(effort S\) \[recommended\]: Track the field Cons: Costs a field\./);
   assert.match(brief, /## The conversation so far\n\n- The person \(v1\), about choice d1/);
   assert.match(brief, /acc plan note ACME-7/);
@@ -274,8 +272,8 @@ test('Open in Claude Code: plan mode in the main checkout, the brief holds the t
   assert.equal(recordInSession(paths, id, 'OTHER-1:cc-1', 'x'), false);
   assert.equal(recordInSession(paths, id, undefined, 'x'), false);
   const turn = readTalk(paths, id).turns.find((x) => x.who === 'claude-code')!;
-  assert.deepEqual([turn.text, turn.sessionId, turn.recorded], ['Opened the plan in Claude Code.', 'cc-1', ['Chose Custom object for Where history is kept']]);
-  assert.match(talkLines(readTalk(paths, id), null).join('\n'), /In Claude Code \(v1\): Opened the plan in Claude Code\.\n {2}- Recorded: Chose Custom object/);
+  assert.deepEqual([turn.text, turn.sessionId, turn.recorded], ['Opened the ticket in Claude Code.', 'cc-1', ['Chose Custom object for Where history is kept']]);
+  assert.match(talkLines(readTalk(paths, id), null).join('\n'), /In Claude Code \(v1\): Opened the ticket in Claude Code\.\n {2}- Recorded: Chose Custom object/);
 });
 
 test('a talk runs with exactly the flags, folder and environment a plan is made with; edge case: a generic project reads from the repo, with no org reads', () => {

@@ -97,10 +97,10 @@ test('ConversationPanels: Make a plan for a task with no plan opens its conversa
   const [, args] = s.fake.calls.executed.slice(from).find(([id]) => id === 'acc.task.analyze')!;
   await s.fake.calls.commands.get('acc.task.analyze')!(...args);
   const panel = await panelOpened(n);
-  assert.deepEqual([panel.viewType, panel.title, panel.column], ['acc.conversation', `${s.id} · Plan conversation`, s.fake.api.ViewColumn.Beside]);
+  assert.deepEqual([panel.viewType, panel.title, panel.column], ['acc.conversation', `Discuss ${s.id}`, s.fake.api.ViewColumn.Beside]);
   assert.match(panel.html, /data-view="conversation"/);
   const m = stateFor(panel.posted as Msg[], s.id, 'conversation')!.model!;
-  assert.deepEqual([m.title, m.talk?.stage, m.talk?.ask], [`${s.id} · Plan conversation`, 'opening', 'What do you want to do here, and what are you thinking?']);
+  assert.deepEqual([m.title, m.talk?.stage, m.talk?.ask], [`Discuss ${s.id}`, 'opening', 'What do you want to do here, and what are you thinking?']);
   // Again: the same panel comes forward, and no second one opens.
   page.receive!({ type: 'conversation-open', project: s.root, task: s.id, about: { ref: 'd1', text: 'Where the report lives' } });
   await until(() => panel.revealed > 0);
@@ -121,7 +121,7 @@ test('edge case: on a page narrower than the two would share, the conversation o
   page.close!();
 });
 
-test('a change shows in the panel and on the page at once: the task blocked, the conversation can\'t be added to in either', async () => {
+test('a change shows in the panel and on the page at once: the task blocked with no plan, the conversation becomes the ticket\'s own in either (T-169)', async () => {
   const page = await pageFor(s.id, 1400);
   const n = s.fake.panels.length;
   page.receive!({ type: 'conversation-open', project: s.root, task: s.id });
@@ -130,9 +130,9 @@ test('a change shows in the panel and on the page at once: the task blocked, the
   const panelFrom = panel.posted.length;
   s.acc('set', s.id, 'blocked', '--reason', 'Waiting on the numbers');
   await s.fake.calls.commands.get('acc.tasks.refresh')!();
-  await until(() => stateFor(panel.posted.slice(panelFrom) as Msg[], s.id, 'conversation')?.model?.talk === null);
+  await until(() => stateFor(panel.posted.slice(panelFrom) as Msg[], s.id, 'conversation')?.model?.talk?.stage === 'plan');
   await until(() => !!stateFor(page.posted.slice(pageFrom) as Msg[], s.id, 'ticket'));
-  assert.equal(stateFor(page.posted.slice(pageFrom) as Msg[], s.id, 'ticket')!.model!.talk ?? null, null, 'the page agrees');
+  assert.equal(stateFor(page.posted.slice(pageFrom) as Msg[], s.id, 'ticket')!.model!.talk?.stage, 'plan', 'the page agrees');
   s.acc('set', s.id, 'todo');
   await s.fake.calls.commands.get('acc.tasks.refresh')!();
   await until(() => stateFor(panel.posted as Msg[], s.id, 'conversation')?.model?.talk?.stage === 'opening');
