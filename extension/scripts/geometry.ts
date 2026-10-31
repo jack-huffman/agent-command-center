@@ -298,6 +298,18 @@ const within = (a: Box, b: Box): boolean => a.x >= b.x - 1 && a.y >= b.y - 1 && 
 const quote = (s: string): string => (s ? ` "${s.length > 40 ? `${s.slice(0, 39)}…` : s}"` : '');
 
 /**
+ * A task page's tab panel that has no controls by design, measured on its own (T-134): the tab, and a class only that
+ * empty panel draws, so the same tab with its controls is judged as any other. Each with why.
+ */
+export const PANELS_WITHOUT_CONTROLS: readonly { panel: string; drawn: string; reason: string }[] = [
+  { panel: 'testing', drawn: 'test-empty', reason: 'Before its builder\'s deploy passed, the Testing tab only says why it is empty (T-161): there is nothing to open yet.' },
+];
+
+/** Whether a measure is of a tab panel that PANELS_WITHOUT_CONTROLS names, drawn empty. */
+export const emptyByDesign = (s: Pick<GeoSnapshot, 'scoped' | 'panel' | 'drawn'>): boolean =>
+  !!s.scoped && PANELS_WITHOUT_CONTROLS.some((p) => p.panel === s.panel && !!s.drawn?.includes(p.drawn));
+
+/**
  * Judges one drawing of a page. home: it's one of the Command Center's sections, which have the rail.
  * No two controls overlap, unless one sits inside the other or one floats in a sticky layer. No text is
  * cut off: an ellipsis passes only with the full text in a title or aria-label. The rail's selected tab
@@ -372,7 +384,8 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
     return !e;
   });
   // A page with no controls by design, such as the loading screen (T-16), is judged without them.
-  if (controls && !examined.overlap) violations.push({ check: 'overlap', what: 'the page', detail: 'examined no controls' });
+  // So is a tab panel PANELS_WITHOUT_CONTROLS names, drawn empty (T-161).
+  if (controls && !examined.overlap && !emptyByDesign(s)) violations.push({ check: 'overlap', what: 'the page', detail: 'examined no controls' });
   if (!examined.clipped) violations.push({ check: 'clipped', what: 'the page', detail: 'examined no text' });
   // A later measure of a task modal's tab panel (T-134) holds only the panel, not the rail the first measure checked.
   if (home && !s.scoped && !examined.tab) violations.push({ check: 'tab', what: 'the page', detail: 'has no selected tab in the rail' });

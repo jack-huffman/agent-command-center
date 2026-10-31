@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { BOARD_TOP, COLLECT_GEOMETRY, drawnIn, dumpedGeometries, dumpedGeometry, MEASURE_TABS, mergedVerdict, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeChat, judgeDisabled, judgeSizes, PIN_MAX_SHARE, SAME_ROW, SEED_FLOORS, type GeoSized, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
+import { BOARD_TOP, COLLECT_GEOMETRY, drawnIn, dumpedGeometries, dumpedGeometry, emptyByDesign, PANELS_WITHOUT_CONTROLS, MEASURE_TABS, mergedVerdict, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeChat, judgeDisabled, judgeSizes, PIN_MAX_SHARE, SAME_ROW, SEED_FLOORS, type GeoSized, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
 import { root } from './support.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
@@ -110,6 +110,18 @@ test('the page never scrolls sideways, and only the elements meant to do (GH-105
 
 test('a drawing that examined no controls or no text fails: an empty page can\'t pass (GH-105)', () => {
   assert.deepEqual(found({ controls: [], texts: [], tab: null, doc: { scroll: 0, view: 1000 }, scrollers: [] }, false), ['overlap: the page: examined no controls', 'clipped: the page: examined no text', 'words: the page: gathered no words', 'a11y: the page: axe examined no node, and the page wrote no a11y part']);
+});
+
+test('edge case: only a tab panel PANELS_WITHOUT_CONTROLS names, measured on its own and drawn empty, may have no controls (T-161)', () => {
+  const bare = { controls: [], texts: [], tab: null, doc: { scroll: 0, view: 1000 }, scrollers: [] };
+  const noControls = (s: Partial<GeoSnapshot>): boolean => judge({ ...bare, ...s } as GeoSnapshot, false).violations.some((v) => v.detail === 'examined no controls');
+  assert.deepEqual(PANELS_WITHOUT_CONTROLS.map((p) => [p.panel, p.drawn]), [['testing', 'test-empty']], 'one panel, by one class');
+  assert.ok(PANELS_WITHOUT_CONTROLS.every((p) => p.reason.length > 20));
+  assert.equal(noControls({ scoped: true, panel: 'testing', drawn: ['test-empty'] }), false, 'the empty Testing tab');
+  assert.equal(noControls({ scoped: true, panel: 'testing', drawn: ['test-steps'] }), true, 'the Testing tab with its steps still needs controls');
+  assert.equal(noControls({ scoped: true, panel: 'plan', drawn: ['test-empty'] }), true, 'another tab');
+  assert.equal(noControls({ scoped: false, panel: 'testing', drawn: ['test-empty'] }), true, 'the page as drawn, which holds the side column too');
+  assert.equal(emptyByDesign({ scoped: true, panel: 'testing' }), false, 'a measure with no drawn list');
 });
 
 test('an exception excuses only its own check on what it names, and counts what it excused (GH-105)', () => {
