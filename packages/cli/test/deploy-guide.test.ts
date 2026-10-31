@@ -10,18 +10,20 @@ import { readPick } from '../../core/src/deploy-pick.ts';
 import { run } from '../../core/src/exec.ts';
 import { mutate } from '../../core/src/ledger.ts';
 import { repoPaths } from '../../core/src/paths.ts';
-import { SF_CONFIG } from '../../core/test/support.ts';
+import { personKeys, SF_CONFIG } from '../../core/test/support.ts';
 import { personOrGuide } from '../src/shared.ts';
-import { cli, repoWithConfig } from './support.ts';
+import { cli, PERSON_STORE, repoWithConfig } from './support.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 const guide = { ACC_ROLE: 'deployer', ACC_TASK: 'T-1' };
+// The person's key, in the store the tests' acc reads (T-171): made here, so a pick acc writes and one a test writes are signed alike.
+const keys = personKeys(PERSON_STORE);
 
 test('the guide\'s deploy passes no yes of its own: the deploy reads the person\'s pick or typed name at its own yes step, after its checks (T-156)', () => {
   const dir = repoWithConfig();
   assert.equal(acc(dir, ['add', 'A thing']).code, 0);
   const paths = repoPaths(dir, run);
-  keepTypedYes(paths, 'T-1', 'main', null, () => new Date());
+  keepTypedYes(paths, 'T-1', 'main', 'main', null, () => new Date(), keys.signer);
   const r = acc(dir, ['deploy', '--task', 'T-1', '--yes', '0Af1'], undefined, guide);
   assert.equal(r.code, 1);
   assert.match(r.err, /isn't a Salesforce project/, 'the deploy\'s own checks come first');
@@ -45,26 +47,26 @@ function deployable(): { dir: string; paths: ReturnType<typeof repoPaths> } {
 
 test('acc deploy <env> --task <id> --guide keeps the person\'s pick of any environment ahead on the path, and refuses any other (T-156)', () => {
   const { dir, paths } = deployable();
-  assert.equal(readPick(paths, 'T-1'), null);
+  assert.equal(readPick(paths, 'T-1', keys.verify).pick, null);
   const prod = acc(dir, ['deploy', 'production', '--task', 'T-1', '--guide', '--json']);
   assert.equal(prod.code, 0, prod.err + prod.out);
   assert.equal(prod.json().env.ACC_DEPLOY_TO, 'production');
   assert.equal(prod.json().pick.env, 'production', 'two steps on from Dev, picked');
-  const kept = readPick(paths, 'T-1')!;
+  const kept = readPick(paths, 'T-1', keys.verify).pick!;
   assert.equal(kept.env, 'production');
   assert.match(kept.by, /^human:/);
   const uat = acc(dir, ['deploy', '--task', 'T-1', '--guide']);
   assert.equal(uat.code, 0, uat.err);
   assert.match(uat.out, /You picked uat for T-1/, 'with none named, its next step');
-  assert.equal(readPick(paths, 'T-1')!.env, 'uat', 'the new pick replaces the old');
+  assert.equal(readPick(paths, 'T-1', keys.verify).pick!.env, 'uat', 'the new pick replaces the old');
   const dev = acc(dir, ['deploy', 'dev', '--task', 'T-1', '--guide']);
   assert.equal(dev.code, 1);
   assert.match(dev.err, /T-1 is in Dev already\. It can go to UAT, Production/);
-  assert.equal(readPick(paths, 'T-1')!.env, 'uat', 'edge case: a refused pick changes nothing');
+  assert.equal(readPick(paths, 'T-1', keys.verify).pick!.env, 'uat', 'edge case: a refused pick changes nothing');
   const other = acc(dir, ['deploy', 'production', '--task', 'T-1', '--guide'], undefined, guide);
   assert.equal(other.code, 1);
   assert.match(other.err, /The deploy guide can't open a deploy guide/, 'security review: the guide can\'t write its own pick');
-  assert.equal(readPick(paths, 'T-1')!.env, 'uat');
+  assert.equal(readPick(paths, 'T-1', keys.verify).pick!.env, 'uat');
 });
 
 test('the guide deploys its own ticket only, never types the org\'s name, and can\'t open another guide', () => {

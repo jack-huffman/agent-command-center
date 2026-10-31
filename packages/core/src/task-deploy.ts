@@ -37,6 +37,7 @@ import { plural } from './text.ts';
 import { draftUpdate } from './updates.ts';
 import { DELETION_KIND } from './deletion-kind.ts';
 import { takeGuidedYes } from './deploy-pick.ts';
+import { type PersonStore, personStore, verifier } from './person-key.ts';
 import { outsideOf } from './outside-changes.ts';
 import { aheadWords, environmentsAhead } from './ticket-path.ts';
 import { recordDeployFailure } from './deploy-record.ts';
@@ -230,6 +231,8 @@ export interface TaskDeployDeps {
   /** Where the org's deploys take turns, when not acc's own folder (a test's). */
   orgLocks?: string;
   onWait?: () => void;
+  /** Where the person's key is (T-171), which a guided deploy's pick and typed yes must be signed with: this system's store unless a test gives one. */
+  personStore?: PersonStore;
 }
 
 export interface TaskDeployOpts {
@@ -504,7 +507,7 @@ function deployTaskNow(paths: RepoPaths, config: Config, id: string, to: string 
       if (why) throw new AccError('refused', why);
       // A deploy guide's yes is what acc kept of the person: their pick of this environment, or for production
       // and a protected org the name they typed in the chat; never what the guide passes (T-154, T-156).
-      if (opts.guided) { takeGuidedYes(paths, id, plan, kept, now, (branch) => environmentByBranch(config, branch)?.name ?? branch); return; }
+      if (opts.guided) { takeGuidedYes(paths, id, plan, kept, now, verifier(deps.personStore ?? personStore(deps.env, run)), (branch) => environmentByBranch(config, branch)?.name ?? branch); return; }
       if (!confirmsOrg(plan, opts.confirm)) throw new AccError('refused', `${plan.to.name} is ${plan.to.type === 'production' ? 'production' : 'protected'}. Type its name, ${plan.confirmName}, to deploy to it.`);
     });
     // A ticket with nothing for the org still moves on: its pull request merges, and nothing is sent to the org.

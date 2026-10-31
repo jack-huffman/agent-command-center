@@ -4,7 +4,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   AccError, type ApexTest, autoMergeFor, builderGatesFor, type Config, deployEnvProblem, drift, FLOORS_FILE, fullGates, gatesFor, gateTarget, loadConfig, mainCheckout, mutate, num, ratchetOf, readFloors, readLedger,
-  pruneRelaxed, receiptsAt, relaxFloor, type RepoPaths, requiredGates, run, runGates, satisfies, setBuilderGates, setRequiredGates, STRAY_FILES, type Task, testsText, valueOf, waiveGates,
+  personStore, pruneRelaxed, receiptsAt, relaxFloor, type RepoPaths, requiredGates, run, runGates, satisfies, setBuilderGates, setRequiredGates, signingKey, STRAY_FILES, type Task, testsText, valueOf, waiveGates,
 } from '../../../core/src/index.ts';
 import { gateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, noAgent, now, type Opts, out, project } from '../shared.ts';
@@ -134,9 +134,11 @@ function cmdGateRelax(o: Opts, names: string[]): number {
   if (task.state === 'done') throw new AccError('refused', `${task.id} is done, and a relax counts only while its task is open.`);
   const where = task.run?.worktree;
   if (!where || !existsSync(where)) throw new AccError('usage', `${task.id} has no worktree on disk, so there's no floors file to relax.`);
+  // The record is signed with the person's key (T-171), made here when this machine has none yet.
+  const signer = signingKey(personStore(process.env, run), process.env, { create: true });
   const record = mutate(paths, now, (l, emit) => {
     pruneRelaxed(paths.relaxed, l);
-    const r = relaxFloor(paths.relaxed, join(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: (o.reason as string | undefined) ?? '', by, now, task: task.id });
+    const r = relaxFloor(paths.relaxed, join(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: (o.reason as string | undefined) ?? '', by, now, task: task.id, signer });
     const t = l.tasks.find((x) => x.id === task.id);
     if (t) {
       t.updatedAt = now().toISOString();

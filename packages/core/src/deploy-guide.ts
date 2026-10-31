@@ -12,6 +12,10 @@
  * kept when they opened the guide, is the yes (deploy-pick.ts, T-156). The hook fires on what is sent into the
  * chat, never on the agent's words; and the guide's settings (deployerSettings) make Claude Code ask the person
  * before each command it runs.
+ *
+ * The hook signs what it keeps with the person's key (person-key.ts, T-171), naming the task, the environment
+ * and the chat, and the deploy reads an unsigned yes, one signed by another key, or one for another task,
+ * environment or chat as no yes: any process of the same user can write the file, a builder's tests among them.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -23,6 +27,7 @@ import { AccError } from './exec.ts';
 import { readLedger } from './ledger.ts';
 import { sessionName } from './names.ts';
 import type { RepoPaths } from './paths.ts';
+import { asClause, signedBody, type Signer, type Verifier } from './person-key.ts';
 import type { ClaudeLaunch } from './plan-talk.ts';
 import { type KeptCheck, TASK_DEPLOY_COMMAND, type TaskCommand, taskDeployEnabled, taskDeployRoute } from './task-deploy.ts';
 
@@ -35,14 +40,21 @@ export const YES_TTL_MS = 15 * 60_000;
 /** The longest message kept as a yes: one line, as an org's name or "yes" is. A longer one clears it. */
 export const YES_MAX = 200;
 
-/** The person's latest short message in a deploy guide's chat. */
+/** The person's latest short message in a deploy guide's chat, signed by the person's key (T-171). */
 export interface TypedYes {
-  v: 1;
+  v: 2;
   task: string;
+  /** The environment's branch the chat deploys to, as ACC_DEPLOY_TO names it. */
+  env: string;
   typed: string;
   at: string;
+  /** The chat it was typed in: the pick's session, or the yes is another chat's. */
   session: string | null;
+  sig: string;
 }
+
+/** The fields a typed yes signs, in order. */
+export const TYPED_YES_SIGNED = ['v', 'task', 'env', 'typed', 'at', 'session'] as const;
 
 export const typedYesPath = (paths: Pick<RepoPaths, 'stateDir'>, task: string): string => join(paths.stateDir, 'deploy-yes', `${fileId(task)}.json`);
 
@@ -50,10 +62,11 @@ export const typedYesPath = (paths: Pick<RepoPaths, 'stateDir'>, task: string): 
 export const deployerTask = (env: NodeJS.ProcessEnv): string | null => (env.ACC_ROLE === DEPLOYER && env.ACC_TASK ? env.ACC_TASK : null);
 
 /**
- * Keeps the person's message as the latest thing they typed in the guide's chat. A message of more than one
- * line, or longer than YES_MAX, is no yes, and clears the one kept: the yes is always the latest message.
+ * Keeps the person's message as the latest thing they typed in the guide's chat, signed for its task, its
+ * environment and its chat. A message of more than one line, or longer than YES_MAX, is no yes, and clears
+ * the one kept: the yes is always the latest message.
  */
-export function keepTypedYes(paths: Pick<RepoPaths, 'stateDir'>, task: string, prompt: string, session: string | null, now: () => Date): void {
+export function keepTypedYes(paths: Pick<RepoPaths, 'stateDir'>, task: string, env: string, prompt: string, session: string | null, now: () => Date, signer: Signer): void {
   const file = typedYesPath(paths, task);
   const typed = prompt.trim();
   if (!typed || typed.length > YES_MAX || /[\r\n]/.test(typed)) {
@@ -61,19 +74,29 @@ export function keepTypedYes(paths: Pick<RepoPaths, 'stateDir'>, task: string, p
     return;
   }
   mkdirSync(dirname(file), { recursive: true });
-  const yes: TypedYes = { v: 1, task, typed, at: now().toISOString(), session };
+  const body = { v: 2 as const, task, env, typed, at: now().toISOString(), session };
+  const yes: TypedYes = { ...body, sig: signer.sign('typed-yes', body) };
   writeFileSync(file, JSON.stringify(yes));
 }
 
 /** What the guide tells the person when there's no yes to use. */
 export const ASK_AGAIN = 'Ask the person to type it in the chat, then run the deploy again.';
 
+/** What a typed yes must match (T-171): the deploy's environment, by branch and by name, and the pick's chat. */
+export interface YesBound {
+  env: string;
+  name: string;
+  session: string | null;
+  verify: Verifier;
+}
+
 /**
  * The person's typed yes for a task's deploy, used up as it's read, whatever it says: what it must say is the
  * deploy's to judge. Refused when there's none, it's older than YES_TTL_MS, or it came before the latest check,
- * which the person may not have seen.
+ * which the person may not have seen. A yes that isn't signed by the person's key, or that names another task,
+ * environment or chat, is no yes, with why (T-171).
  */
-export function takeTypedYes(paths: Pick<RepoPaths, 'stateDir'>, task: string, kept: Pick<KeptCheck, 'at'> | null, now: () => Date): string {
+export function takeTypedYes(paths: Pick<RepoPaths, 'stateDir'>, task: string, kept: Pick<KeptCheck, 'at'> | null, now: () => Date, bound: YesBound): string {
   const file = typedYesPath(paths, task);
   let yes: TypedYes | null = null;
   try {
@@ -82,7 +105,13 @@ export function takeTypedYes(paths: Pick<RepoPaths, 'stateDir'>, task: string, k
     yes = null;
   }
   rmSync(file, { force: true });
-  if (!yes || yes.v !== 1 || yes.task !== task || typeof yes.typed !== 'string') throw new AccError('refused', `The person hasn't typed a yes for ${task} in this chat. ${ASK_AGAIN}`);
+  if (!yes || typeof yes !== 'object' || typeof yes.typed !== 'string') throw new AccError('refused', `The person hasn't typed a yes for ${task} in this chat. ${ASK_AGAIN}`);
+  // A signature covers the version too, so a record from before T-171 (v1, unsigned) reads as no yes, with why.
+  const unsigned = bound.verify.verify('typed-yes', signedBody(yes, TYPED_YES_SIGNED), yes.sig);
+  if (unsigned) throw new AccError('refused', `The yes kept for ${task} is no yes: ${asClause(unsigned)}. Only what the person types in this chat is their yes. ${ASK_AGAIN}`);
+  if (yes.task !== task) throw new AccError('refused', `The person's yes is for ${yes.task}, not ${task}. ${ASK_AGAIN}`);
+  if (yes.env !== bound.env) throw new AccError('refused', `The person typed it in a chat for ${yes.env}, not ${bound.name}. ${ASK_AGAIN}`);
+  if (yes.session !== bound.session) throw new AccError('refused', `The person typed it in another chat, not this one. ${ASK_AGAIN}`);
   const at = Date.parse(yes.at);
   if (!(now().getTime() - at <= YES_TTL_MS)) throw new AccError('refused', `The person's yes is more than ${YES_TTL_MS / 60_000} minutes old. ${ASK_AGAIN}`);
   if (kept && at < Date.parse(kept.at)) throw new AccError('refused', `The person typed it before the latest check. Show them the check's result, then ${ASK_AGAIN.charAt(0).toLowerCase()}${ASK_AGAIN.slice(1)}`);

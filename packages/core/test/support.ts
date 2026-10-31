@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, globSync, lstatSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { delimiter, dirname, join, relative } from 'node:path';
 import { run, type Runner, type RunOptions, type RunResult } from '../src/exec.ts';
+import { folderStore, type PersonStore, type Signer, signingKey, type Verifier, verifier } from '../src/person-key.ts';
 import { shownCommand } from '../src/shell.ts';
 import type { Exec } from '../src/trackers/types.ts';
 import { testGlobs } from '../../../scripts/test-globs.ts';
@@ -10,6 +11,16 @@ import { standIn } from './stand-in.ts';
 import { tempDir } from './temp-root.ts';
 
 export { RUN_ROOT, tempDir } from './temp-root.ts';
+
+/**
+ * A person's key for a test (T-171): a fresh pair in a folder store of its own, with its signer and
+ * verifier. The store's folder is what ACC_PERSON_STORE names when a test runs acc itself.
+ */
+export function personKeys(dir: string = tempDir('person-key-')): { dir: string; store: PersonStore; signer: Signer; verify: Verifier } {
+  const store = folderStore(dir);
+  const signer = signingKey(store, {}, { create: true });
+  return { dir, store, signer, verify: verifier(store) };
+}
 
 /** The test files npm test runs: the quoted globs in package.json's test script, expanded, sorted. */
 export function npmTestFiles(root: string): string[] {

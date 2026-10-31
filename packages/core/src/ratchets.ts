@@ -14,6 +14,7 @@ import { AccError, type RunResult, type Runner } from './exec.ts';
 import type { Gate, GateInput, Outcome } from './gates.ts';
 import { writeAtomic } from './atomic.ts';
 import { type Ledger } from './ledger.ts';
+import { asClause, signedBody, type Signer, type Verifier } from './person-key.ts';
 import type { RatchetDetails, Receipt } from './receipts.ts';
 import { storedFloorSpec } from './stored-floors.ts';
 import { inShell } from './shell.ts';
@@ -134,9 +135,15 @@ export interface RatchetFloors {
   base: Floors;
   /** The floors people relaxed for the task being checked, from acc's records (relaxesFor). */
   relaxed: RelaxRecord[];
+  /** The relax records that back nothing because they aren't the person's (signedRelaxes, T-171), by ratchet, with why. */
+  refused?: { ratchet: string; why: string }[];
   /** Whether a better number is written as the new floor: a task's own worktree, clean, from acc gate run. */
   raise: boolean;
 }
+
+/** What a failing ratchet adds when a relax record for it was refused: the reason, so a person sees why it backed nothing. */
+export const refusedRelaxWords = (floors: Pick<RatchetFloors, 'refused'>, name: string): string =>
+  (floors.refused ?? []).filter((r) => r.ratchet === name).map((r) => ` ${r.why}`).join('');
 
 const words = (limit: RatchetLimit) => (limit === 'floor' ? { limit: 'floor', worse: 'below', lowers: 'lowers' } : { limit: 'ceiling', worse: 'above', lowers: 'raises' });
 
@@ -161,7 +168,7 @@ export function judgeRatchet(name: string, spec: RatchetSpec, value: number, flo
   // Made worse on the branch, by hand: only a person relaxes a floor, and acc keeps a record when one does.
   if (base !== null && (head === null || isWorse(limit, head, base)) && !(head !== null && relaxedTo(floors.relaxed, name, limit, head, base))) {
     const what = head === null ? `drops ${name}'s ${w.limit}` : `${w.lowers} ${name}'s ${w.limit} to ${num(head)}`;
-    return { status: 'fail', summary: `${FLOORS_FILE} ${what}, from ${num(base)} on ${env}, and no person relaxed it. Put it back to ${num(base)}: only a person relaxes a ${w.limit}, with acc gate relax.`, details: details(base) };
+    return { status: 'fail', summary: `${FLOORS_FILE} ${what}, from ${num(base)} on ${env}, and no person relaxed it.${refusedRelaxWords(floors, name)} Put it back to ${num(base)}: only a person relaxes a ${w.limit}, with acc gate relax.`, details: details(base) };
   }
   const floor = head ?? base;
   if (floor === null) {
@@ -265,6 +272,29 @@ export interface RelaxRecord {
   task?: string;
   /** The checkout whose floors file it changed. */
   root: string;
+  /** The person's signature over the record (T-171). A record without one, from before T-171, backs nothing. */
+  sig?: string;
+}
+
+/** The fields a relax record signs, in order. */
+export const RELAX_SIGNED = ['ratchet', 'limit', 'to', 'was', 'by', 'reason', 'at', 'task', 'root'] as const;
+
+/**
+ * The records that are the person's (T-171): signed with this machine's person key. Any process of the same
+ * user can append to the file, so an unsigned record, or one signed by another key, backs nothing, and is
+ * named with why, for the ratchet's summary. The verifier is asked for only when there's a record to check.
+ */
+export function signedRelaxes(records: RelaxRecord[], verify: () => Verifier): { backed: RelaxRecord[]; refused: { ratchet: string; why: string }[] } {
+  if (!records.length) return { backed: [], refused: [] };
+  const v = verify();
+  const backed: RelaxRecord[] = [];
+  const refused: { ratchet: string; why: string }[] = [];
+  for (const r of records) {
+    const why = v.verify('relax', signedBody(r, RELAX_SIGNED), r.sig);
+    if (why) refused.push({ ratchet: r.ratchet, why: `A record that relaxes ${r.ratchet} to ${num(r.to)} backs nothing: ${asClause(why)}. Only a person's own acc gate relax makes one.` });
+    else backed.push(r);
+  }
+  return { backed, refused };
 }
 
 /** Every floor people relaxed in this clone. */
@@ -337,6 +367,8 @@ export interface RelaxRequest {
   now: () => Date;
   /** The task it's for: the record backs a floor only on that task's branch (GH-130). */
   task: string;
+  /** The person's key, which signs the record (T-171). */
+  signer: Signer;
 }
 
 /**
@@ -360,7 +392,8 @@ export function relaxFloor(relaxedFile: string, floorsFile: string, root: string
   if (!isWorse(spec.limit, req.to, was)) throw new AccError('refused', `${num(req.to)} isn't ${w.worse} ${req.ratchet}'s ${w.limit}, ${num(was)}, so it doesn't relax it. acc raises a ${w.limit} itself when a change beats it.`);
   const at = req.now().toISOString();
   writeFloors(floorsFile, { ...floors, [req.ratchet]: { [spec.limit]: req.to, relaxed: { by: req.by, reason, at, was } } });
-  const record: RelaxRecord = { ratchet: req.ratchet, limit: spec.limit, to: req.to, was, by: req.by, reason, at, task: req.task, root };
+  const body: RelaxRecord = { ratchet: req.ratchet, limit: spec.limit, to: req.to, was, by: req.by, reason, at, task: req.task, root };
+  const record: RelaxRecord = { ...body, sig: req.signer.sign('relax', signedBody(body, RELAX_SIGNED)) };
   mkdirSync(dirname(relaxedFile), { recursive: true });
   appendFileSync(relaxedFile, `${JSON.stringify(record)}\n`);
   return record;

@@ -19,7 +19,7 @@ import { confirmsOrg, deployTask, keptCheckPath, NOTHING_TO_CHECK, planTaskDeplo
 import { deployerSettings, deployGuideLaunch, deployGuidePrompt, keepTypedYes } from '../src/deploy-guide.ts';
 import { keepPick, readPick } from '../src/deploy-pick.ts';
 import { listUpdates } from '../src/updates.ts';
-import { gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
+import { gitIn, makeRepo, ok, personKeys, SF_CONFIG, tempDir } from './support.ts';
 
 type Mod = typeof real;
 const now = () => new Date('2026-10-28T12:00:00Z');
@@ -124,7 +124,10 @@ function fake(origin: string, calls: string[], f: Fake = {}) {
   };
 }
 
-const deps = (origin: string, calls: string[], f: Fake = {}) => ({ run: fake(origin, calls, f), now, env: {}, slots: { dir: tempDir('slots-') }, orgLocks: tempDir('orgs-') });
+// The person's key (T-171): what a test's pick and typed yes are signed with, and what the deploy checks them against.
+const keys = personKeys();
+const SESSION = 'sess-guide';
+const deps = (origin: string, calls: string[], f: Fake = {}) => ({ run: fake(origin, calls, f), now, env: {}, slots: { dir: tempDir('slots-') }, orgLocks: tempDir('orgs-'), personStore: keys.store });
 const by = 'human:jordan';
 const realDeploys = (calls: string[]) => calls.filter((c) => /^sf project deploy (start|quick)/.test(c) && !c.includes('--dry-run'));
 const taskIn = (paths: ReturnType<typeof repoPaths>, id: string): Task => readLedger(paths.ledger).tasks.find((t) => t.id === id)!;
@@ -519,7 +522,7 @@ function noGuidedProductionWithoutName(m: Mod): string[] {
   const calls: string[] = [];
   const d = deps(origin, calls, { prodUrl: true });
   m.planTaskDeploy(paths, c, 'ACME-1', 'production', d, { by });
-  keepPick(paths, 'ACME-1', 'production', by, now);
+  keepPick(paths, 'ACME-1', 'production', by, SESSION, now, keys.signer);
   const wrong: string[] = [];
   try {
     m.deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', guided: true });
@@ -533,7 +536,7 @@ function noGuidedProductionWithoutName(m: Mod): string[] {
 
 test('a mutant that lets the guide deploy without the person\'s pick is caught (T-156)', async () => {
   assert.deepEqual(noGuidedDeployWithoutPick(real), []);
-  const m = await mutant('if (opts.guided) { takeGuidedYes(paths, id, plan, kept, now, (branch) => environmentByBranch(config, branch)?.name ?? branch); return; }', 'if (opts.guided) return;');
+  const m = await mutant('if (opts.guided) { takeGuidedYes(paths, id, plan, kept, now, verifier(deps.personStore ?? personStore(deps.env, run)), (branch) => environmentByBranch(config, branch)?.name ?? branch); return; }', 'if (opts.guided) return;');
   assert.notDeepEqual(noGuidedDeployWithoutPick(m), [], 'the mutant deployed, and the check saw it');
 });
 
@@ -554,15 +557,15 @@ test('a deploy guide deploys to the sandbox the person picked on that pick alone
   const d = deps(origin, calls);
   planTaskDeploy(paths, c, 'ACME-1', 'uat', d, { by });
   assert.throws(() => deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', confirm: 'UAT', guided: true }), /No one picked where ACME-1 goes/, 'what the guide passes as the name is never the yes');
-  keepPick(paths, 'ACME-1', 'production', by, now);
-  keepTypedYes(paths, 'ACME-1', 'UAT', null, now);
+  keepPick(paths, 'ACME-1', 'production', by, SESSION, now, keys.signer);
+  keepTypedYes(paths, 'ACME-1', 'uat', 'UAT', SESSION, now, keys.signer);
   assert.throws(() => deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', guided: true }), /The person picked Production for ACME-1, not UAT\. The deploy guide deploys only where the person picked/, 'security review: an environment the person didn\'t pick, even with its name typed');
   assert.deepEqual(realDeploys(calls), []);
-  keepPick(paths, 'ACME-1', 'uat', by, now);
+  keepPick(paths, 'ACME-1', 'uat', by, SESSION, now, keys.signer);
   const r = deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', guided: true });
   assert.equal(r.deployed, true, 'the pick is the yes: no name typed');
   assert.equal(realDeploys(calls).length, 1);
-  assert.ok(readPick(paths, 'ACME-1')!.used, 'used once');
+  assert.ok(readPick(paths, 'ACME-1', keys.verify).pick!.used, 'used once');
   assert.equal(taskIn(paths, 'ACME-1').deploys!.at(-1)!.by, by);
 });
 
@@ -571,20 +574,20 @@ test('a deploy guide\'s yes for production, or a protected org, is the name the 
   const calls: string[] = [];
   const d = deps(origin, calls, { prodUrl: true });
   planTaskDeploy(paths, c, 'ACME-1', 'production', d, { by });
-  keepPick(paths, 'ACME-1', 'production', by, now);
+  keepPick(paths, 'ACME-1', 'production', by, SESSION, now, keys.signer);
   assert.throws(() => deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', guided: true }), /The person hasn't typed a yes for ACME-1 in this chat/, 'a fresh pick is no yes for production');
-  keepTypedYes(paths, 'ACME-1', 'yes', null, now);
+  keepTypedYes(paths, 'ACME-1', 'production', 'yes', SESSION, now, keys.signer);
   assert.throws(() => deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', guided: true }), /The person typed "yes", not Production\. Ask them to type Production in the chat/, 'yes is not the name');
   assert.deepEqual(realDeploys(calls), []);
-  keepTypedYes(paths, 'ACME-1', 'Production', null, now);
+  keepTypedYes(paths, 'ACME-1', 'production', 'Production', SESSION, now, keys.signer);
   assert.equal(deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', guided: true }).deployed, true);
-  assert.equal(typeof readPick(paths, 'ACME-1')!.used, 'string', 'the pick fixed where, and is used up with the deploy');
+  assert.equal(typeof readPick(paths, 'ACME-1', keys.verify).pick!.used, 'string', 'the pick fixed where, and is used up with the deploy');
   // A protected sandbox, by the settings: the same.
   const guarded = repo();
   const gc = config({ environments: [{ name: 'Production', type: 'production', org: 'Acme Production' }, { name: 'UAT', type: 'full', org: 'Acme UAT', protected: true, promotesTo: ['production'] }, { name: 'Dev', type: 'developer', org: 'Acme Dev', default: true, promotesTo: ['uat', 'production'] }] });
   const gd = deps(guarded.origin, []);
   planTaskDeploy(guarded.paths, gc, 'ACME-1', 'uat', gd, { by });
-  keepPick(guarded.paths, 'ACME-1', 'uat', by, now);
+  keepPick(guarded.paths, 'ACME-1', 'uat', by, SESSION, now, keys.signer);
   assert.throws(() => deployTask(guarded.paths, gc, 'ACME-1', 'uat', gd, { by, checkId: '0AfCHECK', guided: true }), /hasn't typed a yes/, 'edge case: a protected sandbox keeps the typed yes');
 });
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { BUILT_IN_GATES, builderGatesFor, parseConfig, type Config, requiredGates } from '../src/config.ts';
 import { drift, driftReportPath } from '../src/drift.ts';
@@ -12,12 +12,13 @@ import {
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
 import { builderSettings } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
-import { formatFloors, pruneRelaxed, readRelaxed, relaxesFor, relaxFloor } from '../src/ratchets.ts';
+import { formatFloors, pruneRelaxed, readRelaxed, refusedRelaxWords, RELAX_SIGNED, relaxesFor, relaxFloor, signedRelaxes } from '../src/ratchets.ts';
+import { folderStore, signedBody, signingKey } from '../src/person-key.ts';
 import { readReceipt, type Receipt, receiptHooks, satisfies, writeReceipt } from '../src/receipts.ts';
 import { NO_COUNTS, type TestCounts } from '../src/test-counts.ts';
 import { withSlot } from '../src/semaphore.ts';
 import { run } from '../src/exec.ts';
-import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
+import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, personKeys, SF_CONFIG, tempDir } from './support.ts';
 
 const config = (raw: unknown): Config => {
   const r = parseConfig(raw);
@@ -862,12 +863,14 @@ function ratchetRepo(floors: Record<string, unknown> | null = { tests: { floor: 
     commitAll(dir, msg);
     return gitIn(dir, 'rev-parse', 'HEAD');
   };
+  // The person's key (T-171): what relaxFloor signs with here, and what the gates check a relax record against.
+  const keys = personKeys();
   // For the task whose branch is checked out, as acc gate run finds it, unless a test names another.
   const gate = (raise: boolean, names: string[] = [], forTask: string | null = gitIn(dir, 'branch', '--show-current').replace(/^task\//, '')) =>
-    runGates(paths, c, env, names, [], { run, now, slots: slots(), raise, ...(forTask ? { task: forTask } : {}) });
+    runGates(paths, c, env, names, [], { run, now, slots: slots(), raise, personStore: keys.store, ...(forTask ? { task: forTask } : {}) });
   const floorsText = () => readFileSync(join(dir, '.acc/floors.json'), 'utf8');
   const runs = () => (existsSync(ran) ? readFileSync(ran, 'utf8').trim().split('\n') : []);
-  return { dir, c, paths, env, task, tasks, set, gate, floorsText, runs, hooks: receiptHooks(paths, c, run) };
+  return { dir, c, paths, env, task, tasks, set, gate, floorsText, runs, keys, hooks: receiptHooks(paths, c, run) };
 }
 
 test('a ratchet is a gate: listed after the commands, heavy when gates.heavy says, and its name can\'t be a built-in\'s (GH-99)', () => {
@@ -949,7 +952,7 @@ test('a floor the builder lowered by hand fails; one a person relaxed, with a re
 
   // A person puts it back, then relaxes it, saying why.
   r.set({ '.acc/floors.json': formatFloors({ tests: { floor: 669 } }), 'count.txt': '640\n' }, 'T-1: put the floor back');
-  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1', signer: r.keys.signer });
   commitAll(r.dir, 'T-1: relax the tests floor');
   const relaxed = r.gate(true);
   assert.deepEqual([relaxed.results[1]!.status, relaxed.results[1]!.summary, relaxed.raised], ['pass', 'tests 640, at its floor.', []]);
@@ -958,7 +961,7 @@ test('a floor the builder lowered by hand fails; one a person relaxed, with a re
 
 test('a floor a person relaxed, raised again by acc but still below the environment\'s, passes once the raise is committed (GH-99)', () => {
   const r = ratchetRepo();
-  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1', signer: r.keys.signer });
   const sha = r.set({ 'count.txt': '650\n' }, 'T-1: relax the tests floor, and ten tests back');
   const ran = r.gate(true);
   assert.deepEqual([ran.results[1]!.status, ran.raised], ['pass', [{ gate: 'tests', label: 'tests', from: 640, to: 650 }]]);
@@ -982,7 +985,7 @@ test('a floor a person relaxed, raised again by acc but still below the environm
 test('a person\'s old relax backs no other floor: once the environment\'s floor moves on, a floor lowered by hand fails (GH-99)', () => {
   const r = ratchetRepo();
   // Long ago, on T-1, a person relaxed tests from 669 to 640.
-  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1', signer: r.keys.signer });
   gitIn(r.dir, 'checkout', '-q', '--', '.acc/floors.json');
   // Since then main's floor rose to 700, and T-9 began there.
   gitIn(r.dir, 'checkout', '-q', 'main');
@@ -1008,7 +1011,7 @@ test('a check\'s stored floor lowered by hand fails that check unrun; one a pers
 
   // A person puts it back, then relaxes it for T-1, saying why: the check runs again, and passes.
   r.set({ '.acc/floors.json': formatFloors(stored) }, 'T-1: put the floor back');
-  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'typecheck.files', to: 100, reason: 'a page went', by: 'human:jordan', now, task: 'T-1' });
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'typecheck.files', to: 100, reason: 'a page went', by: 'human:jordan', now, task: 'T-1', signer: r.keys.signer });
   commitAll(r.dir, 'T-1: relax the typecheck floor');
   assert.deepEqual(r.gate(true, ['typecheck']).results.map((x) => [x.gate, x.status]), [['typecheck', 'pass']]);
   assert.deepEqual(r.runs(), ['typecheck']);
@@ -1020,7 +1023,7 @@ test('a check\'s stored floor lowered by hand fails that check unrun; one a pers
 test('a relax is for one task: another task that began at the same floor can\'t lower it by hand, even naming the relaxed task (GH-130)', () => {
   const r = ratchetRepo();
   // A person relaxes tests from 669 to 640 for T-1, which commits it.
-  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1', signer: r.keys.signer });
   r.set({ 'count.txt': '640\n' }, 'T-1: relax the tests floor');
   assert.equal(r.gate(true).results[1]!.summary, 'tests 640, at its floor.', 'T-1\'s own branch is backed');
   // T-9 also began on main at 669, and its builder lowers the floor by hand.
@@ -1033,9 +1036,42 @@ test('a relax is for one task: another task that began at the same floor can\'t 
   assert.equal(readRelaxed(r.paths.relaxed).length, 1, 'the record is kept for T-1');
 });
 
+test('a relax record that no person\'s key signed backs nothing, and the failing ratchet says so: unsigned, another key, or a changed field (T-171, security review)', () => {
+  const r = ratchetRepo();
+  // What a builder's test could append to acc's records: a relax for its own task, with no signature.
+  mkdirSync(dirname(r.paths.relaxed), { recursive: true });
+  const forged = { ratchet: 'tests', limit: 'floor', to: 640, was: 669, by: 'human:jordan', reason: 'the slow suite moved to its own job', at: now().toISOString(), task: 'T-1', root: r.dir };
+  writeFileSync(r.paths.relaxed, `${JSON.stringify(forged)}\n`);
+  r.set({ 'count.txt': '640\n', '.acc/floors.json': formatFloors({ tests: { floor: 640 } }) }, 'T-1: lower the bar, with a forged relax');
+  const ran = r.gate(true);
+  assert.equal(ran.results[1]!.status, 'fail');
+  assert.equal(ran.results[1]!.summary, '.acc/floors.json lowers tests\'s floor to 640, from 669 on main, and no person relaxed it. A record that relaxes tests to 640 backs nothing: it isn\'t signed. Only a person\'s own acc gate relax makes one. Put it back to 669: only a person relaxes a floor, with acc gate relax.');
+  // Signed by a key a forger made, and a person's record with its number changed.
+  writeFileSync(r.paths.relaxed, `${JSON.stringify({ ...forged, sig: signingKey(folderStore(tempDir('forger-')), {}, { create: true }).sign('relax', signedBody(forged, RELAX_SIGNED)) })}\n`);
+  assert.match(r.gate(true).results[1]!.summary, /backs nothing: it isn't signed by this machine's person key\. Only a person's own acc gate relax makes one\./);
+  const signed = { ...forged, sig: r.keys.signer.sign('relax', signedBody(forged, RELAX_SIGNED)) };
+  writeFileSync(r.paths.relaxed, `${JSON.stringify({ ...signed, to: 600 })}\n`);
+  assert.match(r.gate(true).results[1]!.summary, /relaxes tests to 600 backs nothing: it isn't signed by this machine's person key/, 'the number changed after the person signed');
+  writeFileSync(r.paths.relaxed, `${JSON.stringify(signed)}\n`);
+  assert.deepEqual([r.gate(true).results[1]!.status, r.gate(true).results[1]!.summary], ['pass', 'tests 640, at its floor.'], 'the person\'s own record, as signed, backs the floor');
+  // A record from before T-171, with no signature, backs nothing either: the person relaxes the floor again.
+  const { sig: _old, ...legacy } = signed;
+  writeFileSync(r.paths.relaxed, `${JSON.stringify(legacy)}\n`);
+  assert.match(r.gate(true).results[1]!.summary, /backs nothing: it isn't signed\./);
+  assert.deepEqual(signedRelaxes([], () => { throw new Error('asked for the store with nothing to check'); }), { backed: [], refused: [] }, 'edge case: with no record, the store isn\'t read');
+  // A stored floor's check says the same (T-102).
+  const stored = ratchetRepo({ tests: { floor: 669 }, 'typecheck.files': { floor: 120 } });
+  mkdirSync(dirname(stored.paths.relaxed), { recursive: true });
+  writeFileSync(stored.paths.relaxed, `${JSON.stringify({ ...forged, ratchet: 'typecheck.files', to: 100, was: 120, root: stored.dir })}\n`);
+  stored.set({ '.acc/floors.json': formatFloors({ tests: { floor: 669 }, 'typecheck.files': { floor: 100 } }) }, 'T-1: lower the bar');
+  assert.equal(stored.gate(true, ['typecheck']).results[0]!.summary, '.acc/floors.json lowers typecheck.files from 120 to 100, and no person relaxed it. A record that relaxes typecheck.files to 100 backs nothing: it isn\'t signed. Only a person\'s own acc gate relax makes one. Put it back: only a person relaxes a floor, with acc gate relax <name> --to <n> --reason "<why>".');
+  assert.equal(refusedRelaxWords({ refused: [{ ratchet: 'a', why: 'x.' }, { ratchet: 'b', why: 'y.' }] }, 'b'), ' y.');
+  assert.equal(refusedRelaxWords({}, 'a'), '', 'edge case: nothing refused, nothing said');
+});
+
 test('a relax stops counting once its task is done or leaves the board, and acc prunes it (GH-130)', () => {
   const r = ratchetRepo();
-  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1', signer: r.keys.signer });
   r.set({ 'count.txt': '640\n' }, 'T-1: relax the tests floor');
   assert.equal(r.gate(false).results[1]!.status, 'pass');
   const records = readRelaxed(r.paths.relaxed);

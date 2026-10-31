@@ -9,8 +9,9 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { commandsOf, expands, rawCommandsOf, stripLeading } from './command-words.ts';
 import { builderGatesFor, fullGates, loadConfig, requiredGates } from './config.ts';
 import { deploysByHand, isSalesforceCli } from './deploy-commands.ts';
-import { deployerTask, keepTypedYes } from './deploy-guide.ts';
+import { DEPLOY_TO_VAR, deployerTask, keepTypedYes } from './deploy-guide.ts';
 import type { Runner } from './exec.ts';
+import { personStore, signingKey } from './person-key.ts';
 import { readList } from './gates.ts';
 import { NOTE_RULE } from './agent-notes.ts';
 import { DONE_COMMAND, mutate, readLedger, type Task } from './ledger.ts';
@@ -511,7 +512,10 @@ export function userPromptSubmitHook(input: EventInput, ctx: HookContext): Recor
   const task = deployerTask(ctx.env);
   const root = task ? findAccRoot(ctx.cwd) : null;
   if (!task || !root) return null;
-  keepTypedYes(repoPaths(root, ctx.run), task.toUpperCase(), input.prompt ?? '', input.session_id ?? null, ctx.now);
+  // Signed with the person's key, from the system's store (T-171): the hook never makes a key, so on a machine
+  // with none it keeps nothing, and the deploy says why (NO_KEY). This is the one agent process that signs.
+  const signer = signingKey(personStore(ctx.env, ctx.run), ctx.env, { create: false });
+  keepTypedYes(repoPaths(root, ctx.run), task.toUpperCase(), ctx.env[DEPLOY_TO_VAR] ?? '', input.prompt ?? '', input.session_id ?? null, ctx.now, signer);
   return null;
 }
 

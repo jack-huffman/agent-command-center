@@ -1,79 +1,140 @@
 // The deploy guide (T-154): the person's yes typed in its chat, kept by the UserPromptSubmit hook and used once
-// by acc deploy; what the guide may run; and how its chat opens.
+// by acc deploy; what the guide may run; and how its chat opens. The yes is signed with the person's key, for
+// its task, its environment and its chat (T-171): a file any process wrote is no yes, with why.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
-import { ASK_AGAIN, DEPLOY_TO_VAR, DEPLOYER, DEPLOYER_DENIES, deployerSettings, deployerTask, deployGuidePrompt, keepTypedYes, TASK_DEPLOY_GUIDE_COMMAND, takeTypedYes, taskDeployGuideEnabled, typedYesPath, YES_MAX, YES_TTL_MS } from '../src/deploy-guide.ts';
+import { ASK_AGAIN, DEPLOY_TO_VAR, DEPLOYER, DEPLOYER_DENIES, deployerSettings, deployerTask, deployGuidePrompt, keepTypedYes, TASK_DEPLOY_GUIDE_COMMAND, takeTypedYes, taskDeployGuideEnabled, TYPED_YES_SIGNED, typedYesPath, type YesBound, YES_MAX, YES_TTL_MS } from '../src/deploy-guide.ts';
 import { run } from '../src/exec.ts';
 import { DEPLOYER_ACC, DEPLOYER_GIT, DEPLOYER_SF, guardBash, guardDeployer, guideCommands, preToolUseHook, userPromptSubmitHook } from '../src/hooks.ts';
 import { HAND_DEPLOY_DENIES } from '../src/deploy-commands.ts';
 import { repoPaths } from '../src/paths.ts';
-import { makeRepo, SF_CONFIG, tempDir } from './support.ts';
+import { NO_KEY, PERSON_STORE_ENV } from '../src/person-key.ts';
+import { makeRepo, personKeys, SF_CONFIG, tempDir } from './support.ts';
 
 const at = (iso: string) => () => new Date(iso);
 const T0 = '2026-10-30T12:00:00Z';
 const state = () => ({ stateDir: tempDir('state-') });
 const checked = (iso: string) => ({ at: iso });
+// The person's key (T-171), and what a typed yes for production in the chat sess-1 must match.
+const keys = personKeys();
+const PROD: YesBound = { env: 'production', name: 'Production', session: 'sess-1', verify: keys.verify };
+/** The hook's typed yes: for the task, in the production chat sess-1, signed with the person's key unless a test says whose. */
+const typed = (p: { stateDir: string }, task: string, prompt: string, when: () => Date, over: { env?: string; session?: string | null; signer?: typeof keys.signer } = {}) =>
+  keepTypedYes(p, task, over.env ?? 'production', prompt, over.session === undefined ? 'sess-1' : over.session, when, over.signer ?? keys.signer);
 
 test('the person\'s latest short message is their yes, read once', () => {
   const p = state();
-  keepTypedYes(p, 'ACME-1', '  Production \n', 'sess-1', at(T0));
-  assert.equal(takeTypedYes(p, 'ACME-1', checked('2026-10-30T11:59:00Z'), at('2026-10-30T12:01:00Z')), 'Production', 'trimmed');
+  typed(p, 'ACME-1', '  Production \n', at(T0));
+  assert.equal(takeTypedYes(p, 'ACME-1', checked('2026-10-30T11:59:00Z'), at('2026-10-30T12:01:00Z'), PROD), 'Production', 'trimmed');
   assert.equal(existsSync(typedYesPath(p, 'ACME-1')), false, 'used up');
-  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0)), (e: Error) => e.message === `The person hasn't typed a yes for ACME-1 in this chat. ${ASK_AGAIN}`, 'a second deploy needs a second yes');
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), (e: Error) => e.message === `The person hasn't typed a yes for ACME-1 in this chat. ${ASK_AGAIN}`, 'a second deploy needs a second yes');
 });
 
 test('a long or many-line message is no yes, and clears the one before it, so the yes is always the latest message', () => {
   const p = state();
-  keepTypedYes(p, 'ACME-1', 'Production', null, at(T0));
-  keepTypedYes(p, 'ACME-1', 'x'.repeat(YES_MAX + 1), null, at(T0));
-  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0)), /hasn't typed a yes/);
-  keepTypedYes(p, 'ACME-1', 'Production', null, at(T0));
-  keepTypedYes(p, 'ACME-1', 'wait\nno', null, at(T0));
-  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0)), /hasn't typed a yes/);
-  keepTypedYes(p, 'ACME-1', 'Production', null, at(T0));
-  keepTypedYes(p, 'ACME-1', 'stop', null, at(T0));
-  assert.equal(takeTypedYes(p, 'ACME-1', null, at(T0)), 'stop', 'what it says is the deploy\'s to judge');
-  keepTypedYes(p, 'ACME-1', '   ', null, at(T0));
+  typed(p, 'ACME-1', 'Production', at(T0));
+  typed(p, 'ACME-1', 'x'.repeat(YES_MAX + 1), at(T0));
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), /hasn't typed a yes/);
+  typed(p, 'ACME-1', 'Production', at(T0));
+  typed(p, 'ACME-1', 'wait\nno', at(T0));
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), /hasn't typed a yes/);
+  typed(p, 'ACME-1', 'Production', at(T0));
+  typed(p, 'ACME-1', 'stop', at(T0));
+  assert.equal(takeTypedYes(p, 'ACME-1', null, at(T0), PROD), 'stop', 'what it says is the deploy\'s to judge');
+  typed(p, 'ACME-1', '   ', at(T0));
   assert.equal(existsSync(typedYesPath(p, 'ACME-1')), false, 'edge case: an empty message keeps nothing');
 });
 
 test('a yes older than the limit, or typed before the latest check, is refused and used up', () => {
   const p = state();
-  keepTypedYes(p, 'ACME-1', 'Production', null, at(T0));
-  assert.throws(() => takeTypedYes(p, 'ACME-1', null, () => new Date(Date.parse(T0) + YES_TTL_MS + 1)), /more than 15 minutes old/);
+  typed(p, 'ACME-1', 'Production', at(T0));
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, () => new Date(Date.parse(T0) + YES_TTL_MS + 1), PROD), /more than 15 minutes old/);
   assert.equal(existsSync(typedYesPath(p, 'ACME-1')), false);
-  keepTypedYes(p, 'ACME-1', 'Production', null, at(T0));
-  assert.throws(() => takeTypedYes(p, 'ACME-1', checked('2026-10-30T12:00:01Z'), at('2026-10-30T12:02:00Z')), /typed it before the latest check\. Show them the check's result/);
-  keepTypedYes(p, 'ACME-1', 'Production', null, at(T0));
-  assert.equal(takeTypedYes(p, 'ACME-1', checked(T0), () => new Date(Date.parse(T0) + YES_TTL_MS)), 'Production', 'edge case: at the limit, and at the check\'s own second');
+  typed(p, 'ACME-1', 'Production', at(T0));
+  assert.throws(() => takeTypedYes(p, 'ACME-1', checked('2026-10-30T12:00:01Z'), at('2026-10-30T12:02:00Z'), PROD), /typed it before the latest check\. Show them the check's result/);
+  typed(p, 'ACME-1', 'Production', at(T0));
+  assert.equal(takeTypedYes(p, 'ACME-1', checked(T0), () => new Date(Date.parse(T0) + YES_TTL_MS), PROD), 'Production', 'edge case: at the limit, and at the check\'s own second');
 });
 
 test('edge case: a yes is for its own task: another task\'s file, or one that isn\'t acc\'s, is no yes', () => {
   const p = state();
-  keepTypedYes(p, 'ACME-2', 'Production', null, at(T0));
-  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0)), /hasn't typed a yes for ACME-1/);
+  typed(p, 'ACME-2', 'Production', at(T0));
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), /hasn't typed a yes for ACME-1/);
   mkdirSync(dirname(typedYesPath(p, 'ACME-1')), { recursive: true });
-  writeFileSync(typedYesPath(p, 'ACME-1'), JSON.stringify({ v: 1, task: 'ACME-2', typed: 'Production', at: T0 }));
-  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0)), /hasn't typed a yes/);
+  // A person's signed yes for ACME-2, copied into ACME-1's file: the signature holds, and the task doesn't.
+  typed(p, 'ACME-2', 'Production', at(T0));
+  writeFileSync(typedYesPath(p, 'ACME-1'), readFileSync(typedYesPath(p, 'ACME-2')));
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), /The person's yes is for ACME-2, not ACME-1\./);
   writeFileSync(typedYesPath(p, 'ACME-1'), 'not json');
-  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0)), /hasn't typed a yes/);
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), /hasn't typed a yes/);
 });
 
-test('the UserPromptSubmit hook keeps what the person types in a deploy guide\'s chat, and nothing anywhere else', () => {
+test('a yes that no person\'s key signed is no yes, with why: unsigned, another key, or a machine with no key (T-171, security review)', () => {
+  const p = state();
+  const file = typedYesPath(p, 'ACME-1');
+  mkdirSync(dirname(file), { recursive: true });
+  // What a builder's test could write: the record as the hook writes it, with no signature, or with one made up.
+  const forged = { v: 2, task: 'ACME-1', env: 'production', typed: 'Production', at: T0, session: 'sess-1' };
+  writeFileSync(file, JSON.stringify(forged));
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), (e: Error) => e.message === `The yes kept for ACME-1 is no yes: it isn't signed. Only what the person types in this chat is their yes. ${ASK_AGAIN}`);
+  assert.equal(existsSync(file), false, 'used up as any yes is, so it is never read twice');
+  writeFileSync(file, JSON.stringify({ ...forged, sig: Buffer.from('x'.repeat(64)).toString('base64') }));
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), /is no yes: it isn't signed by this machine's person key\./);
+  writeFileSync(file, JSON.stringify({ ...forged, sig: 'not base64 at all!!' }));
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), /isn't signed by this machine's person key/);
+  // A record from before T-171: v1, with no signature.
+  writeFileSync(file, JSON.stringify({ v: 1, task: 'ACME-1', typed: 'Production', at: T0, session: null }));
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), /is no yes: it isn't signed\./);
+  // Signed by another machine's key: a key a forger made is not this machine's.
+  typed(p, 'ACME-1', 'Production', at(T0), { signer: personKeys().signer });
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), /isn't signed by this machine's person key/);
+  // A changed field breaks the signature: the typed word, the time, or the task.
+  for (const change of [{ typed: 'Production ' }, { at: '2026-10-30T12:00:01Z' }, { task: 'ACME-9' }, { env: 'uat' }, { session: 'sess-2' }]) {
+    typed(p, 'ACME-1', 'Production', at(T0));
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), ...change }));
+    assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), /isn't signed by this machine's person key/, JSON.stringify(change));
+  }
+  assert.deepEqual([...TYPED_YES_SIGNED], ['v', 'task', 'env', 'typed', 'at', 'session'], 'everything but the signature is signed');
+  // A machine with no key reads every yes as none, and says so.
+  typed(p, 'ACME-1', 'Production', at(T0));
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), { ...PROD, verify: personKeys().verify }), /isn't signed by this machine's person key/, 'edge case: a machine with a different key');
+  typed(p, 'ACME-1', 'Production', at(T0));
+  const none = { ...PROD, verify: { verify: () => NO_KEY } };
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), none), (e: Error) => e.message.startsWith(`The yes kept for ACME-1 is no yes: ${NO_KEY}`));
+});
+
+test('a signed yes stands only for its own environment and its own chat: another\'s is refused before its words are judged (T-171)', () => {
+  const p = state();
+  typed(p, 'ACME-1', 'Production', at(T0), { env: 'uat' });
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), (e: Error) => e.message === `The person typed it in a chat for uat, not Production. ${ASK_AGAIN}`);
+  typed(p, 'ACME-1', 'Production', at(T0), { session: 'sess-2' });
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), (e: Error) => e.message === `The person typed it in another chat, not this one. ${ASK_AGAIN}`);
+  typed(p, 'ACME-1', 'Production', at(T0), { session: null });
+  assert.throws(() => takeTypedYes(p, 'ACME-1', null, at(T0), PROD), /another chat/, 'edge case: a chat with no session id is not the pick\'s');
+  typed(p, 'ACME-1', 'Production', at(T0), { session: null });
+  assert.equal(takeTypedYes(p, 'ACME-1', null, at(T0), { ...PROD, session: null }), 'Production', 'a pick with no session matches a yes with none');
+});
+
+test('the UserPromptSubmit hook keeps what the person types in a deploy guide\'s chat, signed for its task, environment and chat, and nothing anywhere else', () => {
   const dir = makeRepo({ '.acc/config.json': '{}' });
   const paths = repoPaths(dir, run);
-  const guide = { cwd: dir, env: { ACC_ROLE: DEPLOYER, ACC_TASK: 'acme-1' }, run, now: at(T0) };
-  assert.equal(userPromptSubmitHook({ prompt: 'Production', session_id: 's1' }, guide), null, 'it never answers in the chat');
-  assert.equal(takeTypedYes(paths, 'ACME-1', null, at(T0)), 'Production', 'the task is read as its id');
+  const guide = { cwd: dir, env: { ACC_ROLE: DEPLOYER, ACC_TASK: 'acme-1', [DEPLOY_TO_VAR]: 'production', [PERSON_STORE_ENV]: keys.dir }, run, now: at(T0) };
+  assert.equal(userPromptSubmitHook({ prompt: 'Production', session_id: 'sess-1' }, guide), null, 'it never answers in the chat');
+  const kept = JSON.parse(readFileSync(typedYesPath(paths, 'ACME-1'), 'utf8'));
+  assert.deepEqual(kept, { v: 2, task: 'ACME-1', env: 'production', typed: 'Production', at: '2026-10-30T12:00:00.000Z', session: 'sess-1', sig: kept.sig }, 'the task as its id, the environment from ACC_DEPLOY_TO, the chat from the hook\'s input');
+  assert.equal(takeTypedYes(paths, 'ACME-1', null, at(T0), PROD), 'Production', 'signed with this machine\'s key');
   for (const env of [{ ACC_ROLE: 'builder', ACC_TASK: 'ACME-1' }, { ACC_ROLE: DEPLOYER }, {}]) {
-    userPromptSubmitHook({ prompt: 'Production' }, { ...guide, env });
+    userPromptSubmitHook({ prompt: 'Production' }, { ...guide, env: { ...env, [PERSON_STORE_ENV]: keys.dir } });
     assert.equal(existsSync(typedYesPath(paths, 'ACME-1')), false, `nothing kept for ${JSON.stringify(env)}`);
   }
   userPromptSubmitHook({ prompt: 'Production' }, { ...guide, cwd: tempDir('elsewhere-') });
   assert.equal(existsSync(typedYesPath(paths, 'ACME-1')), false, 'edge case: outside a project with acc, nothing');
+  // On a machine with no key, the hook makes none, keeps nothing, and says why: only a person's command makes a key.
+  assert.throws(() => userPromptSubmitHook({ prompt: 'Production', session_id: 'sess-1' }, { ...guide, env: { ...guide.env, [PERSON_STORE_ENV]: tempDir('no-key-') } }), (e: Error) => e.message === NO_KEY);
+  assert.equal(existsSync(typedYesPath(paths, 'ACME-1')), false);
   assert.equal(deployerTask({ ACC_ROLE: DEPLOYER, ACC_TASK: 'T-9' }), 'T-9');
   assert.equal(DEPLOY_TO_VAR, 'ACC_DEPLOY_TO', 'the name the skill and the guard read');
   assert.equal(deployerTask({ ACC_ROLE: 'builder', ACC_TASK: 'T-9' }), null);

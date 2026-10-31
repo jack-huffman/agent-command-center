@@ -9,7 +9,10 @@
  * the typed yes does (YES_TTL_MS); expired or used, the person types the environment's name instead.
  *
  * The guide can't write or change a pick: its settings deny every edit and `acc hook`, its guard refuses any
- * word that names this file, and `acc deploy --guide` refuses the deployer (personOnly).
+ * word that names this file, and `acc deploy --guide` refuses the deployer (personOnly). And no other process
+ * of the same user can make one either (T-171): the pick is signed with the person's key (person-key.ts),
+ * which only a person's command holds, over the task, the environment and the chat it opens; an unsigned
+ * pick, one signed by another key, or one for another task or environment reads as no pick, with why.
  */
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -18,39 +21,61 @@ import { writeAtomic } from './atomic.ts';
 import { takeTypedYes, YES_TTL_MS } from './deploy-guide.ts';
 import { AccError } from './exec.ts';
 import type { RepoPaths } from './paths.ts';
+import { asClause, signedBody, type Signer, type Verifier } from './person-key.ts';
 import { confirmsOrg, type KeptCheck, type TaskDeployPlan } from './task-deploy.ts';
 
-/** Where a person said a ticket goes, kept by acc when they opened its deploy guide. */
+/** Where a person said a ticket goes, kept by acc when they opened its deploy guide, signed by their key (T-171). */
 export interface DeployPick {
-  v: 1;
+  v: 2;
   task: string;
   /** The environment's branch, as ACC_DEPLOY_TO names it. */
   env: string;
   by: string;
   at: string;
-  /** When a deploy used it as the yes; a used pick is no yes again. */
+  /** The guide chat it opened, by its session id: the typed yes must come from that chat. */
+  session: string;
+  sig: string;
+  /** When a deploy used it as the yes; a used pick is no yes again. Outside the signature: the guide's deploy sets it, and holds no key. */
   used?: string;
 }
 
+/** The fields a pick signs, in order. */
+export const PICK_SIGNED = ['v', 'task', 'env', 'by', 'at', 'session'] as const;
+
 export const deployPickPath = (paths: Pick<RepoPaths, 'stateDir'>, task: string): string => join(paths.stateDir, 'deploy-picks', `${fileId(task)}.json`);
 
-/** Keeps the person's pick, whole: the one before it, for any environment, is replaced. */
-export function keepPick(paths: Pick<RepoPaths, 'stateDir'>, task: string, env: string, by: string, now: () => Date): DeployPick {
-  const pick: DeployPick = { v: 1, task, env, by, at: now().toISOString() };
+/** Keeps the person's pick, whole and signed: the one before it, for any environment, is replaced. */
+export function keepPick(paths: Pick<RepoPaths, 'stateDir'>, task: string, env: string, by: string, session: string, now: () => Date, signer: Signer): DeployPick {
+  const body = { v: 2 as const, task, env, by, at: now().toISOString(), session };
+  const pick: DeployPick = { ...body, sig: signer.sign('deploy-pick', body) };
   const file = deployPickPath(paths, task);
   mkdirSync(dirname(file), { recursive: true });
   writeAtomic(file, JSON.stringify(pick, null, 2) + '\n');
   return pick;
 }
 
-/** The pick kept for a task, or null when there's none or it isn't acc's. */
-export function readPick(paths: Pick<RepoPaths, 'stateDir'>, task: string): DeployPick | null {
+/** The pick's file as it is, whatever it holds, or null when there's none or it isn't JSON. */
+function pickFile(paths: Pick<RepoPaths, 'stateDir'>, task: string): DeployPick | null {
   try {
     const p = JSON.parse(readFileSync(deployPickPath(paths, task), 'utf8')) as DeployPick;
-    return p && p.v === 1 && p.task === task && typeof p.env === 'string' && typeof p.at === 'string' ? p : null;
+    return p && typeof p === 'object' ? p : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * The pick kept for a task, or why it is none: there's no file, it isn't signed by the person's key (any
+ * process of the same user can write the file: a builder's tests among them), or it is signed for another
+ * task. A pick for another task is one a person signed, so its signature holds; its task doesn't.
+ */
+export function readPick(paths: Pick<RepoPaths, 'stateDir'>, task: string, verify: Verifier): { pick: DeployPick | null; why: string | null } {
+  const p = pickFile(paths, task);
+  if (!p || typeof p.env !== 'string' || typeof p.at !== 'string') return { pick: null, why: null };
+  const unsigned = verify.verify('deploy-pick', signedBody(p, PICK_SIGNED), p.sig);
+  if (unsigned) return { pick: null, why: `The pick kept for ${task} is no pick: ${asClause(unsigned)}. Only a person's own acc deploy --guide makes one.` };
+  if (p.task !== task) return { pick: null, why: `The pick kept for ${task} is ${p.task}'s, not its own.` };
+  return { pick: p, why: null };
 }
 
 /** Why a pick is no yes now, or null: a deploy used it already, or it is older than a typed yes may be. */
@@ -69,14 +94,16 @@ export type GuidedYes = 'pick' | 'typed';
  * the person typed in the chat, newer than the check and used once (D-235). For any other org a fresh, unused
  * pick is the yes, and is marked used; a stale one falls back to the typed name.
  */
-export function takeGuidedYes(paths: Pick<RepoPaths, 'stateDir'>, id: string, plan: Pick<TaskDeployPlan, 'confirm' | 'confirmName' | 'to' | 'sandbox'>, kept: Pick<KeptCheck, 'at'> | null, now: () => Date, envName: (branch: string) => string = (b) => b): GuidedYes {
-  const pick = readPick(paths, id);
-  if (!pick) throw new AccError('refused', `No one picked where ${id} goes. A person opens its deploy guide with acc deploy <environment> --task ${id} --guide, and that pick is where it deploys.`);
+export function takeGuidedYes(paths: Pick<RepoPaths, 'stateDir'>, id: string, plan: Pick<TaskDeployPlan, 'confirm' | 'confirmName' | 'to' | 'sandbox'>, kept: Pick<KeptCheck, 'at'> | null, now: () => Date, verify: Verifier, envName: (branch: string) => string = (b) => b): GuidedYes {
+  const read = readPick(paths, id, verify);
+  const none = `No one picked where ${id} goes. A person opens its deploy guide with acc deploy <environment> --task ${id} --guide, and that pick is where it deploys.`;
+  if (!read.pick) throw new AccError('refused', read.why ? `${read.why} ${none}` : none);
+  const { pick } = read;
   if (pick.env !== plan.to.branch) throw new AccError('refused', `The person picked ${envName(pick.env)} for ${id}, not ${plan.to.name}. The deploy guide deploys only where the person picked: acc deploy ${pick.env} --task ${id}.`);
   const typedName = (lead: string): GuidedYes => {
     let typed: string;
     try {
-      typed = takeTypedYes(paths, id, kept, now);
+      typed = takeTypedYes(paths, id, kept, now, { env: plan.to.branch, name: plan.to.name, session: pick.session, verify });
     } catch (e) {
       throw new AccError('refused', `${lead}${(e as Error).message}`);
     }
