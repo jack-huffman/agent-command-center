@@ -480,7 +480,8 @@ test('under its repo, each task heads its agents, those needing you first, then 
   assert.deepEqual(acme.tasks.map((t) => [t.key, t.title, t.project, t.needsYou]), [['AC-2', 'Lead routing', '/w/acme', true], ['AC-1', 'Case rules', '/w/acme', false], [null, null, null, false]]);
   // A task's agents together, by role, the one needing you first: its builder (D-087), its review.
   const [ac2, ac1, other] = acme.tasks;
-  assert.deepEqual(ac2!.agents.map((a) => [a.label, a.needsYou, a.look.label]), [['builder', true, 'Needs you: wants permission'], ['review', false, 'Working']]);
+  // A reviewer at work says it's Reviewing (T-164).
+  assert.deepEqual(ac2!.agents.map((a) => [a.label, a.needsYou, a.look.label]), [['builder', true, 'Needs you: wants permission'], ['review', false, 'Reviewing']]);
   assert.deepEqual(ac1!.agents.map((a) => a.label), ['builder 2'], 'the second dispatch, by its run\'s count');
   assert.deepEqual(other!.agents.map((a) => [a.label, a.task]), [['acme-dev', null]], 'by its own name');
   // Its done task's builder, folded away, naming its task since no task line heads it.
@@ -534,7 +535,7 @@ test('the Agents page draws repos, task lines and agent lines, with no Kind colu
   assert.match(page, /' · no agents right now'/);
   assert.match(page, /'another window'/);
   // A task's line opens its page; finished sessions fold, closed unless opened, with Stop finished for the repo's.
-  assert.match(page, /openable\(line, \{ type: 'run', command: 'acc\.task\.show', ref: \{ project: t\.project, task: key \} \}\)/);
+  assert.match(page, /openable\(head, \{ type: 'run', command: 'acc\.task\.show', ref: \{ project: t\.project, task: task\.key \} \}\)/);
   assert.match(page, /const open = memory\(\)\.opened\.includes\(key\);/);
   assert.match(page, /argButton\('acc\.agents\.stopFinished', 'Stop finished', 'debug-stop', r\.key\)/);
   // While it needs you: Answer finds its question on the Overview; Watch and Open in Claude Code run its commands.
@@ -590,17 +591,16 @@ test('Agents names both stops Stop finished, through one command, and puts Setti
   assert.match(page, /const stop = m\.stopFinished \? toolbarButton\([^;]*\) : null;/);
 });
 
-test('the Running column fits beside the sticky actions at every width: State and Model wrap where there\'s no room (T-39)', () => {
+test('a card\'s facts wrap where there\'s no room, and none is hidden at any width (T-39, T-164)', () => {
   const page = pageSource('agents.ts');
-  // A Model cell breaks between the model and its effort, never inside either.
-  assert.match(page, /el\('td', 'mono muted model', el\('span', 'unbroken', [^;]*' ' : null, a\.model && a\.effort \? el\('span', 'unbroken', `· \$\{a\.effort\}`\) : null\)/);
+  // A model breaks between the model and its effort, never inside either.
+  assert.match(page, /el\('span', 'mono muted model', el\('span', 'unbroken', [^;]*' ' : null, a\.model && a\.effort \? el\('span', 'unbroken', `· \$\{a\.effort\}`\) : null\)/);
   assert.doesNotMatch(page, /'nowrap mono muted model'/);
   const css = readFileSync(join(root, 'webview', 'agents.css'), 'utf8');
-  // The State cell wraps at every width, not only in a narrow tab: outside any @media block.
+  // The facts and what it's doing wrap at every width, not only in a narrow tab: outside any @media block.
   const top = css.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, '');
-  assert.match(top, /\.agents-grid td\.state \.status \{ white-space: normal; min-width: 10em; \}/);
-  assert.match(css, /@media \(max-width: 660px\) \{[^@]*\.agents-grid td\.state \.status \{ min-width: 8em; \}/);
-  // Edge: the 560 px rule still hides Model, and nothing hides Running.
-  assert.match(css, /@media \(max-width: 560px\) \{ \.agents-grid \.model \{ display: none; \}/);
-  assert.doesNotMatch(css, /\.ran[^{]*\{[^}]*display: none/);
+  assert.match(top, /\.agent-facts \{[^}]*flex-wrap: wrap;/);
+  assert.match(top, /\.agent-doing \.status \{ white-space: normal; \}/);
+  // Edge: nothing hides the model or how long it has run, as the table's narrow rule once hid Model.
+  assert.doesNotMatch(css, /\.(ran|model)[^{]*\{[^}]*display: none/);
 });

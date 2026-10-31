@@ -308,6 +308,10 @@ test('a builder\'s latest step and model come from its transcript\'s tail, skipp
     rec({ type: 'assistant', message: { model: '<synthetic>', content: [{ type: 'text', text: 'API Error' }] } }),
     '{ torn',
   ].join('\n'));
-  assert.deepEqual(lastStepIn(file), { step: { icon: 'terminal', title: 'Run the tests', at: '2026-10-06T11:59:00Z' }, model: 'claude-opus-5-5' });
+  // Its latest calls, newest first, for what it's doing (T-164): a helper's Read isn't one of them.
+  assert.deepEqual(lastStepIn(file), {
+    step: { icon: 'terminal', title: 'Run the tests', at: '2026-10-06T11:59:00Z' }, model: 'claude-opus-5-5',
+    recent: [{ tool: 'Bash', command: 'npm test', path: null }, { tool: 'Edit', command: null, path: 'src/a.ts' }],
+  });
   assert.equal(lastStepIn(join(dirname(file), 'none.jsonl')), null);
 });

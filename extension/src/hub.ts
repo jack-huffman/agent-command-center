@@ -631,7 +631,7 @@ export class Hub implements vscode.Disposable {
     return (p && this.repoJobs.get(p.ledgerPath)) ?? { repo: p?.ledgerPath ?? root, max: p?.config.agents.max ?? 1, jobs: [], reviews: [], analyses: [], resumes: [] };
   }
 
-  /** A running builder's latest step and model, by its session, as of the last look while the page was on screen. */
+  /** A running builder's latest steps and model, or another session's at work, by its session, as of the last look while the page was on screen. */
   stepOf(sessionId: string): LastStep | null {
     return this.builderSteps.get(sessionId)?.step ?? null;
   }

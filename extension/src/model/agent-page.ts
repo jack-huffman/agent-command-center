@@ -5,6 +5,7 @@
 
 import { type Doc, fromMarkdown } from '../../../packages/core/src/trackers/doc.ts';
 import { agentLook, sessionFor } from '../logic/agents.ts';
+import { sessionDoing } from '../logic/doing.ts';
 import type { AgentSession, Tone } from '../logic/shared.ts';
 import type { Entry } from '../transcript.ts';
 import { sessionFolders } from './agents.ts';
@@ -73,7 +74,9 @@ export function agentModel(i: AgentInput): AgentModel {
   const project = s ? hub.projectFor(s.cwd) : undefined;
   // The task it builds, found as the task finds its builder: never by a name alone (D-087).
   const row = project && s ? hub.taskRows(project.root).find((r) => sessionFor(r, [s]) === s) : undefined;
-  const look = s && live ? agentLook(s, hub.askingFor?.(s), hub.tieFor?.(s)) : i.active ? { label: 'Working', icon: 'sync~spin', tone: 'blue' as Tone, needsYou: false } : { label: 'Ended', icon: 'circle-slash', tone: 'neutral' as Tone, needsYou: false };
+  const tie = s && live ? hub.tieFor?.(s) : null;
+  // What it's doing (T-164), as the Agents page says it.
+  const look = s && live ? agentLook(s, hub.askingFor?.(s), tie, sessionDoing(s, tie?.role, hub.stepOf?.bind(hub))) : i.active ? { label: 'Working', icon: 'sync~spin', tone: 'blue' as Tone, needsYou: false } : { label: 'Ended', icon: 'circle-slash', tone: 'neutral' as Tone, needsYou: false };
   const limit = i.limit ?? 400;
   const views = i.entries.slice(-limit).map((e): EntryView => (e.k === 'prompt' ? { k: 'prompt', id: e.id, at: e.at, body: fromMarkdown(e.text), instructions: e.instructions }
     : e.k === 'say' ? { k: 'say', id: e.id, at: e.at, body: fromMarkdown(e.text) } : e));

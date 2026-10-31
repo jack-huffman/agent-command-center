@@ -8,7 +8,8 @@ import { type Analysis, analysisRequired, analyzing } from '../../packages/core/
 import { queuePlaces } from '../../packages/core/src/queue.ts';
 import { latestVerdict, reviewCurrent, reviewing } from '../../packages/core/src/review.ts';
 import { resuming } from '../../packages/core/src/resume.ts';
-import { agentLook, rowSession } from './logic/agents.ts';
+import { type AgentLook, agentLook, rowSession } from './logic/agents.ts';
+import { sessionDoing } from './logic/doing.ts';
 import { effortShown } from './logic/efforts.ts';
 import { byAutopilot } from '../../packages/core/src/autopilot-log.ts';
 import { failedChecks } from '../../packages/core/src/autopilot-rules.ts';
@@ -72,7 +73,9 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
     const unseen = missing ?? unseenFrom(t, p?.config, { silentSince: silent, now, resuming: !!resumed });
     // A resume just started isn't listed yet, and its old background session may still say blocked.
     const carrying = !!resumed && !session?.pid;
-    const look = carrying ? { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue' as const } : session ? agentLook(session, asking, hub.tieFor(session)) : null;
+    // What its agent is doing (T-164), from its latest steps: a review or an analysis by its role.
+    const tie = session ? hub.tieFor(session) : null;
+    const look: AgentLook | null = carrying ? { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue', needsYou: false, working: true } : session ? agentLook(session, asking, tie, sessionDoing(session, tie?.role ?? 'builder', (id) => hub.stepOf(id))) : null;
     const info: SessionInfo | undefined = unseen ? { unseen: true } : stopped ? { stopped: true } : carrying ? { status: 'busy' } : session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined;
     const said = stopped && t.run?.sessionId ? hub.lastSaid(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null;
     // The model its agent runs with (D-086): what it last answered with, else what acc started it with.
@@ -99,7 +102,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       run: t.run,
       cloud,
       // A cloud builder's state is its branch's (GH-69): working while it pushes, needs you when it's quiet.
-      agent: unseen ? { label: UNSEEN_WORDS[unseen].label, icon: 'eye-closed', tone: 'orange' } : cloud ? (cloud.finished ? { label: 'Finished: collecting', icon: 'cloud-download', tone: 'blue' } : cloud.wait ? { label: `Needs you: ${cloud.wait}`, icon: 'bell', tone: 'orange' } : { label: 'Working in the cloud', icon: 'cloud', tone: 'blue' }) : look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
+      agent: unseen ? { label: UNSEEN_WORDS[unseen].label, icon: 'eye-closed', tone: 'orange' } : cloud ? (cloud.finished ? { label: 'Finished: collecting', icon: 'cloud-download', tone: 'blue' } : cloud.wait ? { label: `Needs you: ${cloud.wait}`, icon: 'bell', tone: 'orange' } : { label: 'Working in the cloud', icon: 'cloud', tone: 'blue', busy: true }) : look ? { label: look.label, icon: look.icon, tone: look.tone, ...(look.tip ? { tip: look.tip } : {}), ...(look.working ? { busy: true } : {}) } : null,
       model,
       effort: model ? effortShown(model, t.run?.effort) : null,
       asking: !!asking,

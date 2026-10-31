@@ -84,6 +84,13 @@ function holdLine(a: TicketAcc): HTMLElement | null {
 /** Open in Claude Code… is too long for half the panel, so its tile says Claude Code; its tip and command are the same. */
 const shortLabel = (a: Action): Action => (a.label === 'Open in Claude Code' ? { ...a, label: 'Claude Code' } : a);
 
+/** Its builder's session's chip: what it's doing (T-164), with the step behind it on hover and to a screen reader. */
+function described(chip: HTMLElement, tip: string | undefined): HTMLElement {
+  chip.title = tip ?? 'Its builder\'s session';
+  if (tip) chip.setAttribute('aria-description', tip);
+  return chip;
+}
+
 /** The panel's body: the glance, the actions, More actions and Details. The caller makes it fold to its header line. */
 export function renderAgentPanel(m: Pick<TicketModel, 'project' | 'key'>, a: TicketAcc, onWaive: (gate: string) => void): HTMLElement {
   const g = stateGlance(a);
@@ -91,7 +98,7 @@ export function renderAgentPanel(m: Pick<TicketModel, 'project' | 'key'>, a: Tic
   const { shown, more } = splitActions(a.actions, a.state);
   const glance = el('div', 'agent-glance',
     // Its state as the one state chip, its icon and its label, as every board and ticket draws one (T-94); beside it the session where it adds to it.
-    g.disagree ? el('p', 'agent-disagree', icon('warning', 'orange'), el('span', '', g.disagree)) : el('div', 'agent-state', stateChip(a.look), g.session ? Object.assign(stateChip(g.session), { title: 'Its builder\'s session' }) : null),
+    g.disagree ? el('p', 'agent-disagree', icon('warning', 'orange'), el('span', '', g.disagree)) : el('div', 'agent-state', stateChip(a.look), g.session ? described(stateChip(g.session), g.session.tip) : null),
     sum ? el('p', `agent-checks tone-${sum.tone}`, status(sum)) : null,
     holdLine(a));
   const moreSet = taskActions(more.map(shortLabel));

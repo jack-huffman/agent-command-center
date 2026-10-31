@@ -57,6 +57,10 @@ export interface Look {
   label: string;
   icon: string;
   tone: Tone;
+  /** More than its label says, on hover and to a screen reader: the step behind an agent's activity (T-164). */
+  tip?: string;
+  /** An agent at work, whatever its activity says (T-164). */
+  busy?: boolean;
 }
 
 /** What a kind of agent runs with, as Settings' How agents run shows it (D-036). */
@@ -128,7 +132,7 @@ export interface HubLike {
   machine?: { load: number; cpus: number } | null;
   /** A project's repo's jobs under way: land, refresh, promote, deploy, autopilot's step, reviews, analyses and resumes. */
   jobsOf?(root: string): RepoJobs;
-  /** A running builder's latest step and model, by its session. */
+  /** A running builder's latest steps and model, by its session, or another session's at work (T-164). */
   stepOf?(sessionId: string): LastStep | null;
   /** This machine's limits and each project's, for Settings (GH-111). */
   limits?(): LimitsFacts | null;

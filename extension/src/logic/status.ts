@@ -14,9 +14,10 @@ export interface StatusSummary {
 
 /**
  * The status bar's one line on the swarm: what needs you, what's running, what's in review. Each count
- * has its icon and its words, so it reads without colour.
+ * has its icon and its words, so it reads without colour. Its tooltip says what each running task's agent
+ * is doing, in the Agents page's words (T-164).
  */
-export function statusSummary(rows: Pick<TaskRow, 'id' | 'title' | 'display'>[], needsYou: number): StatusSummary {
+export function statusSummary(rows: Pick<TaskRow, 'id' | 'title' | 'display' | 'agent'>[], needsYou: number): StatusSummary {
   const running = rows.filter((r) => r.display === 'running');
   const review = rows.filter((r) => r.display === 'review');
   const parts = [
@@ -24,7 +25,8 @@ export function statusSummary(rows: Pick<TaskRow, 'id' | 'title' | 'display'>[],
     running.length ? `$(sync) ${running.length} running` : '',
     review.length ? `$(eye) ${review.length} in review` : '',
   ].filter(Boolean);
-  const list = (label: string, rs: typeof rows) => (rs.length ? [`${label}: ${rs.map((r) => r.id).join(', ')}`] : []);
+  const doing = (r: (typeof rows)[number]) => (r.agent?.busy && r.agent.label !== 'Working' ? ` (${r.agent.label})` : '');
+  const list = (label: string, rs: typeof rows) => (rs.length ? [`${label}: ${rs.map((r) => `${r.id}${doing(r)}`).join(', ')}`] : []);
   const tooltip = [
     needsYou ? `${needsYou} thing${needsYou === 1 ? '' : 's'} need${needsYou === 1 ? 's' : ''} you` : '',
     ...list('Running', running),
@@ -36,7 +38,7 @@ export function statusSummary(rows: Pick<TaskRow, 'id' | 'title' | 'display'>[],
 // ---------------------------------------------------------------- one status bar item (D-065)
 
 export interface StatusParts {
-  rows: Pick<TaskRow, 'id' | 'title' | 'display'>[];
+  rows: Pick<TaskRow, 'id' | 'title' | 'display' | 'agent'>[];
   needsYou: number;
   /** A command acc runs for you that waits on an answer: its label. */
   asking: string | null;

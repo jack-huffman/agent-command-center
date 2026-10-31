@@ -11,6 +11,7 @@ import { AUTOPILOT_STEPS, DISPLAY, QUEUE_PHASES, type SessionTie } from '../../p
 import { GATE_STATUSES } from '../../packages/core/src/receipts.ts';
 import { escapeRegExp } from '../../packages/core/src/text.ts';
 import { agentLook } from '../src/logic/agents.ts';
+import { ACTIVITIES } from '../src/logic/doing.ts';
 import { type AgentSession, TASK_GROUPS, type TaskRow, type Tone } from '../src/logic/shared.ts';
 import { type AboutAction, type AboutFacts, aboutModel } from '../src/model/about.ts';
 import { billingLook } from '../src/model/agents.ts';
@@ -228,6 +229,8 @@ export const TABLES: Table[] = [
     states: () => product(product(['working', 'blocked', 'done', 'failed', 'stopped', undefined], ['busy', 'waiting', 'idle', undefined]), product([null, 'has a question'], [null, finished]))
       .flatMap(([[state, status], [asking, tie]]) => [undefined, 4].map((pid): [string, Shown] => [`${state}/${status}${asking ? ', asking' : ''}${tie ? ', finished' : ''}${pid ? ', with a process' : ''}`, agentLook(session({ state, status, pid }), asking, tie)])),
   },
+  // What an agent at work is doing (T-164): each activity as its look shows it.
+  { name: 'what an agent is doing', sources: ['extension/src/logic/doing.ts#ACTIVITIES'], states: () => Object.entries(ACTIVITIES).map(([k, a]): [string, Shown] => [k, agentLook(session({ state: 'working' }), null, null, { key: k as keyof typeof ACTIVITIES, ...a, detail: null })]) },
   { name: 'the wording findings of a task\'s analysis, on its page (T-12)', sources: ['extension/src/model/task-page.ts#wordingLook'], states: () => [1, 2].map((n) => [`${n} findings`, wordingLook(n)!]) },
   {
     name: 'a task\'s analysis, on its card', sources: ['extension/src/model/cards.ts#analysisLook'],
