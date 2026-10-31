@@ -305,8 +305,11 @@ function ticketToTalk(paths: RepoPaths, id: string): { task: Task; a: Analysis |
   return { task, a, open: task.state === 'todo' && !!a };
 }
 
-/** The session a message about a ticket with no plan resumes (T-169): the agent's last reply's, or null before its first. */
-export const lastSession = (t: PlanTalk): string | null => [...t.turns].reverse().find((x) => x.who === 'agent' && x.sessionId)?.sessionId ?? null;
+/**
+ * The session a message about a ticket with no plan resumes (T-169): the agent's last reply's, or null before its
+ * first. The opening conversation's `openingSession` is this over its own turns.
+ */
+export const lastSession = (t: Pick<PlanTalk, 'turns'>): string | null => [...t.turns].reverse().find((x) => x.who === 'agent' && x.sessionId)?.sessionId ?? null;
 
 /**
  * A person's message about the ticket, and the planning agent's reply (T-98, T-169). Each message gives the agent

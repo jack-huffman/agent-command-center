@@ -16,9 +16,10 @@ import { AccError, type RunResult } from './exec.ts';
 import { readLedger, type Task } from './ledger.ts';
 import { sessionName } from './names.ts';
 import type { RepoPaths } from './paths.ts';
-import { addTurn, type PlanTalk, readTalk, TALK_MAX, type TalkDeps, type Talking, talking, talkingPath, type TalkTurn, writeTalk } from './plan-talk.ts';
+import { addTurn, lastSession, type PlanTalk, readTalk, TALK_MAX, type TalkDeps, type Talking, talking, talkingPath, type TalkTurn, writeTalk } from './plan-talk.ts';
 import { type PlanTicket, ticketLines, ticketWithout } from './plan-ticket.ts';
 import { NO_STEPS } from './steps.ts';
+import { readTicketPack } from './ticket-context.ts';
 import { askedLine, parseQuestions, QUESTIONS_MAX, QUESTIONS_SCHEMA, REPLY_RULES, type TalkAsk, turnQuestions } from './talk-questions.ts';
 
 /** The plan's version the opening conversation is kept at: there is no plan yet. */
@@ -58,12 +59,17 @@ export const OPENING_SYSTEM = [
 ].join('\n');
 
 /**
- * The message to the planning agent before the plan: the first one holds the ticket (T-110: its comments too),
- * since the session starts with it; a later one is the person's words, as the session already holds the ticket.
+ * The message to the planning agent before the plan. With a context pack (`pack`, T-169: everything acc knows about
+ * the ticket, its text and comments too), every message gives it, so a later one sees the ticket as it is now, and
+ * the first one (`first`) asks the opening question under it. Without one, the first message holds the ticket
+ * (T-110: its comments too), since the session starts with it, and a later one is the person's words alone.
  */
-export function openingPrompt(task: Pick<Task, 'id' | 'title'>, text: string, ticket: PlanTicket | null): string {
+export function openingPrompt(task: Pick<Task, 'id' | 'title'>, text: string, ticket: PlanTicket | null, pack = '', first = !!ticket): string {
+  const head = pack
+    ? [pack, '', first ? `# ${OPENING_ASK}` : '# The person says', '']
+    : ticket ? [`# ${task.id}: ${task.title}`, '', ...ticketLines(ticket), `# ${OPENING_ASK}`, ''] : ['# The person says', ''];
   return [
-    ...(ticket ? [`# ${task.id}: ${task.title}`, '', ...ticketLines(ticket), `# ${OPENING_ASK}`, ''] : ['# The person says', '']),
+    ...head,
     text.trim(),
     '',
     'Answer them: what you understood, briefly, and your questions, if any.',
@@ -87,7 +93,7 @@ export function parseOpeningReply(stdout: string): { understood: string; questio
 }
 
 /** The session the opening conversation runs in: the agent's last answer's, or null before its first. */
-export const openingSession = (t: PlanTalk): string | null => [...openingTurns(t)].reverse().find((x) => x.who === 'agent' && x.sessionId)?.sessionId ?? null;
+export const openingSession = (t: PlanTalk): string | null => lastSession({ turns: openingTurns(t) });
 
 /**
  * The planning session a new plan resumes (T-111): with an opening conversation, the newest of the agent's
@@ -128,8 +134,9 @@ function taskToOpen(paths: RepoPaths, id: string): Task {
 
 /**
  * The person's opening message, and the planning agent's answer (T-111): what it understood, and at most
- * three questions, each with its answers (T-113). The first message starts the planning session with the whole ticket
- * (`ticket`, T-110; without it, the description); each later one resumes it. Read-only, with the same tools
+ * three questions, each with its answers (T-113). Each message gives the context pack (T-169); the first starts the
+ * planning session, its pack built on the ticket just read (`ticket`, T-110; without it, the one acc kept), and each
+ * later one resumes it. Read-only, with the same tools
  * and hook as making the plan. The person's message is kept first, so an answer that fails still shows what
  * was said.
  */
@@ -144,6 +151,8 @@ export function startPlan(paths: RepoPaths, config: Config, id: string, message:
     if (text.length > TALK_MAX) throw new AccError('usage', `Your message is longer than ${TALK_MAX} characters.`);
     return { task, text, resume: openingSession(readTalk(paths, id)) };
   });
+  // Each message gives the whole pack (T-169); the first builds it on the ticket just read from its tracker.
+  const pack = steps.step('pack', 'Read what acc knows about the ticket', () => readTicketPack(paths, config, id, run, resume ? null : ticket) ?? '');
   const turn = addTurn(paths, id, { who: 'you', by, at: now().toISOString(), version: OPENING_VERSION, text });
   // A new session starts from a fresh folder, as a plan's does; a later message resumes it from the same one.
   const cwd = analystDir(paths, config, id, !!resume);
@@ -159,7 +168,7 @@ export function startPlan(paths: RepoPaths, config: Config, id: string, message:
       '-p', ...(resume ? ['--resume', resume] : ['--session-id', session, '--name', name]), '--permission-mode', 'dontAsk', ...roleArgs(config, 'planner'),
       '--output-format', 'json', '--json-schema', JSON.stringify(OPENING_SCHEMA), '--append-system-prompt', OPENING_SYSTEM,
       ...analystFlags(paths, config, cwd, deps.accCommand),
-    ], { cwd, input: openingPrompt(task, text, resume ? null : (ticket ?? ticketWithout(task))), env: analystEnv(config, deps.env, id), timeoutMs: 20 * 60_000 });
+    ], { cwd, input: openingPrompt(task, text, resume ? null : (ticket ?? ticketWithout(task)), pack, !resume), env: analystEnv(config, deps.env, id), timeoutMs: 20 * 60_000 });
   } finally {
     awake?.release();
     rmSync(marker, { force: true });
