@@ -37,7 +37,7 @@ export interface Banner {
 
 /** A single choice's options, at most (D-205): the person's own words come after them. Pinned to core's OPTIONS_MAX by choice-limit.test.ts. */
 export const CHOICE_MAX = 3;
-/** The longest answer the page sends: core's ANSWER_MAX, which the message's check holds to. */
+/** The longest answer the page sends, as the extension's message check holds it (extension/src/model/banners.ts). The webview can't import it (D-121). */
 const ANSWER_MAX = 4000;
 
 /** "AB-1", "AB-1 and AB-2", "AB-1, AB-2 and AB-3". */

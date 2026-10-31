@@ -374,10 +374,10 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   });
 }
 
-/** A run of acc's steps open in the panel (T-65), with the step its sample opens. */
 /** Every banner the banners' sample draws above its tabs (T-168), to open them all. */
 const BANNER_IDS = ['blocked', 'conflicts', 'checks', 'card', 'files'] as const;
 
+/** A run of acc's steps open in the panel (T-65), with the step its sample opens. */
 function stepsState(k: StepSample): unknown {
   const id = STEP_SAMPLE_ID[k];
   const step = STEP_SAMPLE_OPEN[k];
