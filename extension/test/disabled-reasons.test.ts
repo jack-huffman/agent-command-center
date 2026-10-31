@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { QuestionCard } from '../src/model/questions.ts';
 import type { RuleCard } from '../src/model/rules.ts';
+import { SEND_EMPTY } from '../webview/chat.ts';
 import { type PageElement, pageDom } from './page-dom.ts';
 
 const page = pageDom();
@@ -127,11 +128,11 @@ test('the conversation Send says to type a message first while the box is empty,
   const s = renderConversation(m.project, { ...m.talk!, running: false, send: { disabled: null } }) as unknown as PageElement;
   const send = buttons(s, 'Send')[0]!;
   const box = s.all('talk-box')[0]!;
-  assert.deepEqual(sendState(send), [true, 'Type a message first']);
+  assert.deepEqual(sendState(send), [true, SEND_EMPTY]);
   type(box, 'Why that order?');
   assert.deepEqual(sendState(send), [false, '']);
   type(box, '   ');
-  assert.deepEqual(sendState(send), [true, 'Type a message first'], 'emptied again, the reason comes back');
+  assert.deepEqual(sendState(send), [true, SEND_EMPTY], 'emptied again, the reason comes back');
 });
 
 test('the conversation Send keeps the reason it was given while typing, and does not swap it for the empty-box one (edge case: a message already on its way)', () => {
@@ -155,7 +156,7 @@ test('the agent reply Send gives its hint as the reason when it cannot reply, sa
   assert.deepEqual(sendState(off), [true, 'It\'s answering. You can write again when it stops.']);
   const page = draw({ can: true, hint: 'Sent to its own session.' });
   const on = buttons(page, 'Send')[0]!;
-  assert.deepEqual(sendState(on), [true, 'Type a message first'], 'off until there is text (T-160)');
+  assert.deepEqual(sendState(on), [true, SEND_EMPTY], 'off until there is text (T-160)');
   type(page.all('reply-box')[0]!, 'Use the Premium Support hours.');
   assert.deepEqual(sendState(on), [false, '']);
 });
