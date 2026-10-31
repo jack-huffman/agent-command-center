@@ -3,16 +3,10 @@
     "floor": 3300
   },
   "screenshots.clipped": {
-    "floor": 172941,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "T-153 makes Setup one step on each screen, so the run draws less text and fewer button rows than the old wall of step cards. 1% below its clean run, against main's floors after T-154 (176673, 7102). Approved by the person, 2026-10-30; set again as main had moved.",
-      "at": "2026-10-30T18:13:06.033Z",
-      "was": 176673
-    }
+    "floor": 173224
   },
   "screenshots.sideways": {
-    "floor": 8648
+    "floor": 8880
   },
   "screenshots.overview": {
     "floor": 1199
@@ -21,28 +15,22 @@
     "floor": 700
   },
   "screenshots.covered": {
-    "floor": 1736
+    "floor": 1867
   },
   "screenshots.raw": {
     "floor": 837
   },
   "screenshots.a11y": {
-    "floor": 660900
+    "floor": 664167
   },
   "screenshots.actions": {
     "floor": 1906
   },
   "screenshots.disabled": {
-    "floor": 1568
+    "floor": 1585
   },
   "screenshots.sizes": {
-    "floor": 6098,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "T-153 makes Setup one step on each screen, so the run draws less text and fewer button rows than the old wall of step cards. 1% below its clean run, against main's floors after T-154 (176673, 7102). Approved by the person, 2026-10-30; set again as main had moved.",
-      "at": "2026-10-30T18:13:06.528Z",
-      "was": 7102
-    }
+    "floor": 6126
   },
   "screenshots.ci.a11y": {
     "floor": 622973
