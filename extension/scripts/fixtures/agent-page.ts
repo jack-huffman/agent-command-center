@@ -6,6 +6,25 @@ import { MIN } from './shared.ts';
 
 /** ACME-14's activity: its instructions, what it said, the tools it used, and the prompt it's waiting on. */
 export function sampleAgent(now = Date.now()): AgentModel {
+  return agentModel({ hub: sampleHub(now), key: 's-acme-14', seen: null, entries: acmeEntries(now), readable: true, lastAt: new Date(now - 3 * MIN).toISOString(), model: 'claude-opus-5-5' });
+}
+
+/**
+ * ACME-14's activity once the person wrote to it from its page (T-160): their message after its CRUD warnings,
+ * then its reply and the steps it took, long enough that the chat scrolls with their message pinned on top.
+ */
+export function sampleAgentChat(now = Date.now()): AgentModel {
+  const at = (ago: number) => new Date(now - ago * MIN).toISOString();
+  const entries = acmeEntries(now);
+  const after = entries.findIndex((e) => e.id === 's2');
+  entries.splice(after + 1, 0,
+    { k: 'prompt', id: 'p2', at: at(7), instructions: false, text: 'Use `WITH USER_MODE` on every query in CaseRouting, not only the queue lookup, and say which ones changed.' },
+    { k: 'say', id: 's2b', at: at(7), text: 'Three queries read Case or Group in `CaseRouting.cls`: the queue lookup, the product line map, and the fallback queue. I\'ll move all three to `WITH USER_MODE` and run the static checks again.' });
+  return agentModel({ hub: sampleHub(now), key: 's-acme-14', seen: null, entries, readable: true, lastAt: at(3), model: 'claude-opus-5-5' });
+}
+
+/** ACME-14's transcript, oldest first. */
+function acmeEntries(now: number): Entry[] {
   const at = (ago: number) => new Date(now - ago * MIN).toISOString();
   const cwd = '/Users/me/code/acme-service/.claude/worktrees/ACME-14';
   const tool = (id: string, ago: number, toolName: string, icon: string, title: string, code: string | null, status: 'running' | 'done' | 'error', result: string | null = null, more = 0): Entry =>
@@ -26,5 +45,5 @@ export function sampleAgent(now = Date.now()): AgentModel {
     { k: 'say', id: 's3', at: at(4), text: 'The static checks pass. Next, the routing tests in the Dev org.' },
     tool('t10', 3, 'Bash', 'terminal', 'Run the routing tests in the Dev org', 'sf apex run test --class-names CaseRoutingTest --target-org "Acme Dev" --wait 20', 'running'),
   ];
-  return agentModel({ hub: sampleHub(now), key: 's-acme-14', seen: null, entries, readable: true, lastAt: at(3), model: 'claude-opus-5-5' });
+  return entries;
 }

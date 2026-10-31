@@ -1,12 +1,12 @@
 {
   "tests": {
-    "floor": 3317
+    "floor": 3353
   },
   "screenshots.clipped": {
     "floor": 175649
   },
   "screenshots.sideways": {
-    "floor": 8785
+    "floor": 8880
   },
   "screenshots.overview": {
     "floor": 1199
@@ -15,7 +15,7 @@
     "floor": 700
   },
   "screenshots.covered": {
-    "floor": 1736
+    "floor": 1867
   },
   "screenshots.raw": {
     "floor": 849

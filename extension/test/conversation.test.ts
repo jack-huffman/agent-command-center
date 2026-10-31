@@ -182,7 +182,8 @@ const { renderTicket } = await import('../webview/task-page.ts');
 const { state } = await import('../webview/state.ts');
 
 const drawPanel = (m: ReturnType<typeof sampleConversation>) => { const box = page.document.createElement('div'); box.append(...(renderConversationPage(m) as unknown as PageElement[])); return box as unknown as PageElement; };
-const buttons = (e: PageElement, label: string): PageElement[] => e.all().filter((x) => x.tagName === 'BUTTON' && x.textContent === label);
+// A button by its words, or by its name where it has only an icon, such as the message card's Send (T-160).
+const buttons = (e: PageElement, label: string): PageElement[] => e.all().filter((x) => x.tagName === 'BUTTON' && (x.textContent || x.getAttribute('aria-label')) === label);
 const drawn = () => new Promise<void>((r) => queueMicrotask(r));
 
 test('the panel opens with its title, the task\'s, the question, the box with the cursor in it, and Draft the plan off with why', async () => {
@@ -207,7 +208,7 @@ test('mid-conversation, the panel draws the latest exchange, the earlier turns f
   const turns = p.all('talk-turn');
   assert.deepEqual(turns.map((t) => t.getAttribute('aria-label')), ['You (jordan)'], 'the person\'s answers, the latest exchange');
   assert.equal(buttons(p, 'Earlier in this conversation (2 messages)').length, 1);
-  assert.ok(turns.every((t) => /Before the plan/.test(t.textContent)), 'said before there was a plan');
+  assert.ok(turns.every((t) => !/Before the plan|You/.test(t.textContent)), 'the person\'s message is a box with no heading: no name, no version (T-160)');
   assert.match(turns[0]!.textContent, /1\. Should integration users' conversions get the role too\?\n   Yes, them too/, 'the answers went as one message');
   assert.equal(p.all('talk-card').length, 0, 'answered: no question waits');
   assert.match(p.all('talk-waiting')[0]!.textContent, /reading the ticket to reply/);
