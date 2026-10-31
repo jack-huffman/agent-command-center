@@ -1,4 +1,4 @@
-## D-T-163 Each role has its own model and effort, with acc's default for it, and the planning agent is a role (2026-10-30)
+## D-243 Each role has its own model and effort, with acc's default for it, and the planning agent is a role (2026-10-30)
 
 T-163. The person, asked whether the planning agent could cost fewer tokens: "We should be able to define the
 planning model as well as the reviewer model, but offer a default." Before, the analysis, the plan conversation
