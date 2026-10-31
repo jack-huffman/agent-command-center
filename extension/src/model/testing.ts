@@ -11,6 +11,7 @@ import type { DeployTests, TaskDeploy } from '../../../packages/core/src/deploy-
 import { shownNote, type Task } from '../../../packages/core/src/ledger.ts';
 import { sfComponent } from '../../../packages/core/src/sf-metadata.ts';
 import { orgOpen } from '../../../packages/core/src/sf-org-pages.ts';
+import { escapeRegExp } from '../../../packages/core/src/text.ts';
 import { KEY, type ModelArea, short } from './shared.ts';
 
 /** One component the builder deployed: its name as a person reads it, where it opens, and its source path, which names it to the extension. */
@@ -91,8 +92,7 @@ const spellings = (name: string): string[] => (name.includes('.') ? [name, name.
 /** Where a word appears in a text as a whole word, not inside a longer API name: each [start, end). */
 function spans(text: string, word: string): [number, number][] {
   const out: [number, number][] = [];
-  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  for (const m of text.matchAll(new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, 'g'))) out.push([m.index, m.index + m[0].length]);
+  for (const m of text.matchAll(new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(word)}(?![A-Za-z0-9_])`, 'g'))) out.push([m.index, m.index + m[0].length]);
   return out;
 }
 
