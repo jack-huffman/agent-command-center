@@ -7,7 +7,7 @@
  * nothing could be read. No vscode import, so it's testable.
  */
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
-import { basename, relative } from 'node:path';
+import { basename, posix, win32 } from 'node:path';
 import { RECENT_STEPS, type ToolStep } from './logic/doing.ts';
 
 export type ToolStatus = 'running' | 'done' | 'error';
@@ -73,10 +73,14 @@ function resultText(content: unknown): string {
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 
-/** A path a tool call names, relative to the session's folder when it sits inside it; as written when it's outside; null when there's none. */
+/**
+ * A path a tool call names, relative to the session's folder when it sits inside it; as written when it's outside; null
+ * when there's none. It keeps the transcript's own separators, whichever system reads it: a session on a Mac wrote `/`.
+ */
 function relPath(p: unknown, cwd: string | null): string | null {
   const s = str(p);
   if (!s) return null;
+  const relative = cwd?.includes('\\') ? win32.relative : posix.relative;
   const rel = cwd && s.startsWith(cwd) ? relative(cwd, s) : s;
   return rel && !rel.startsWith('..') ? rel : s;
 }

@@ -317,6 +317,17 @@ test('a builder\'s latest step and model come from its transcript\'s tail, skipp
   assert.equal(lastStepIn(join(dirname(file), 'none.jsonl')), null);
 });
 
+test('edge case: a tool call\'s path keeps its transcript\'s separators on any system, a Mac session\'s `/` and a Windows one\'s `\\`', () => {
+  const pathIn = (cwd: string, filePath: string) => {
+    const file = join(tempDir('acc-sep-'), 's.jsonl');
+    writeFileSync(file, JSON.stringify({ sessionId: 's', cwd, timestamp: '2026-10-06T11:59:00Z', type: 'assistant', message: { model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 't', name: 'Edit', input: { file_path: filePath } }] } }));
+    return lastStepIn(file)?.recent?.[0]?.path;
+  };
+  assert.equal(pathIn('/wt', '/wt/src/a.ts'), 'src/a.ts');
+  assert.equal(pathIn('C:\\wt', 'C:\\wt\\src\\a.ts'), 'src\\a.ts');
+  assert.equal(pathIn('/wt', '/elsewhere/a.ts'), '/elsewhere/a.ts', 'outside the session\'s folder, as written');
+});
+
 test('readSteps reads a busy session with no task, and not an idle one, and forgets a session no longer at work (T-164)', () => {
   const config = tempDir('acc-steps-');
   const cwd = '/w/acme';
