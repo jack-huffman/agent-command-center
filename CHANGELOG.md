@@ -5,6 +5,28 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.56.0
+
+- The Changes tab shows where a ticket's work was deployed from acc's own record
+  (D-248). Each environment's row says deployed (when, and by the builder or the
+  deploy guide), deploy failed (when, and why in one line), merged, or not
+  deployed. Opening or refreshing a ticket no longer reads any branch or org.
+  Each row has Check this org, which reads that one org when you click it and
+  shows the result under the row. A deploy to an environment off the usual
+  path, such as Hotfix, no longer moves where the ticket is.
+- Discuss a ticket (D-249). The ticket's header has a Discuss button that opens
+  one chat about the whole ticket. Each message gives the agent the ticket and
+  its comments, the plan, the metadata changed, where it is deployed, the
+  checks, the review's findings, why it is blocked and the builder's notes. It
+  works at any stage, reads and changes nothing, and can still propose a plan
+  change. Open in Claude Code gives the session the same context.
+- The ticket's tabs are words only: Ticket, Plan & build, Changes and Testing
+  (D-250). The Plan tab is now Plan & build wherever you read it.
+- The notices above a ticket's tabs, such as Blocked and Shares files, are
+  banners closed by default, each with a one-line summary (D-250). Open one to
+  see its detail. A blocked builder's question shows its options and your own
+  words, and Send to its builder gives it the answer.
+
 ## 0.55.0
 
 - A Salesforce ticket's work goes to the development org on its own (D-244).

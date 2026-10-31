@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-30**. Version 0.54.0 is
+Where each piece of the build stands, as of **2026-10-31**. Version 0.55.0 is
 the latest release (2026-10-30). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`. Version 0.55.0 is prepared and waits on a person
+`.sha256` beside its `.vsix`. Version 0.56.0 is prepared and waits on a person
 to release it.
 
 Every bullet below is one status line, in this form:
@@ -201,6 +201,11 @@ where each one's done-when is written out.
   2026-10-30. Evidence: D-237 to D-247, release 0.55.0. Automatic merge and the
   org readings are tried against stand-in Salesforce and GitHub answers; not
   yet on the pilot.
+- **Where a ticket's work is deployed, from acc's record, a chat about the
+  whole ticket, the ticket's tabs in words and its notices as banners closed
+  by default**: done. Checked 2026-10-31. Evidence: D-248, D-249, D-250,
+  release 0.56.0. Check this org is tried against stand-in Salesforce answers;
+  not yet on the pilot.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).
