@@ -1604,8 +1604,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
   from there. Tasks with no tracker get the same page
   from their brief and history.
 - **Its content is in tabs** (T-134, T-135): Ticket (the description, related tickets
-  and activity, together), Plan, Changes, Testing, Review and Verify, each shown
-  only with something in it. Testing (T-161) is the exception: a Salesforce task
+  and activity, together), Plan & build (where the plan is made and the build
+  starts; the part's id stays `plan`), Changes, Testing, Review and Verify, each
+  shown only with something in it, by its name alone, with no icon (T-168). Testing (T-161) is the exception: a Salesforce task
   has it from the start, and before its builder's deploy to the development org
   passed, it says what it will hold. Then it has one line of where the work is
   ("Deployed to Dev 2 h ago, tests passed, 88% coverage"), Open <environment>,
@@ -1614,8 +1615,16 @@ The extension handles every workspace folder that has `.acc/config.json`.
   its development org; Verify is for checking a developer's pull request. It
   never needs the person. The Agent panel, once the build is done, links to it
   with How to test it. A tab that needs the person says "needs you" with an orange
-  bell. The notices that need the person stay above the tabs, and Details and
-  the Agent panel beside them. A page opens on a link's tab, else one that
+  bell. The notices that need the person stay above the tabs, each a banner
+  (T-168): an icon with its label and a one-line summary ("Blocked: …",
+  "Shares 3 files with AB-20526"), closed on each draw unless the person opened
+  it, which the page remembers per task. Opened, it shows the detail: a blocked
+  note's bullets, the files, the checks or the reason. Where a blocked note asks
+  the person to choose, each question is a choice of its options, three at
+  most, and the person's own words; Send gives the answer to the builder's own
+  session, as the Agent panel's reply does, and the banner then says it was
+  sent. A cloud builder, or one with no session, can't take one from there, and
+  the choice says why. Details and the Agent panel sit beside them. A page opens on a link's tab, else one that
   needs the person, else the tab last on show for that ticket, else Ticket.
 - **Changes leads with where it is and Deploy…** (T-138, T-158, T-167): on a
   Salesforce task, one row for each environment on the ticket's path, in order,

@@ -15,8 +15,9 @@ import { renderRecords } from './record-changes.ts';
 import { renderField } from './changes-field.ts';
 import { renderManifest } from './manifest.ts';
 import { conversationLine, headerDiscuss } from './talk.ts';
-import { drawNote } from './note.ts';
 import { renderReview } from './review.ts';
+import { renderBanners } from './banners.ts';
+import { drawNote } from './note.ts';
 import { collapsible, criteriaSummary, oneLine } from './collapse.ts';
 import { afterTabs, askedComment, chooseTab, renderTabs } from './task-tabs.ts';
 import { taskTabs } from './tab-rules.ts';
@@ -152,30 +153,10 @@ export function renderTicket(m: TicketModel): Node[] {
   // Outside the repo's place (D-072): said plainly, and only a person's call when acc keeps a task for it.
   if (m.outside) out.push(el('div', `notice${m.acc ? ' attention' : ''}`, icon(m.acc ? 'warning' : 'filter', m.acc ? 'orange' : undefined), el('span', '', m.outside)));
 
-  // What needs the person first: why it's stuck, in one line (D-052), above everything else. Then the page's
-  // content in tabs (T-134): Ticket, Plan, Changes, Testing, Review and Verify. On a narrow page the notices still come first (T-41).
-  const top = el('div', 'ticket-top');
-  if (m.acc?.blocker) top.append(blockedNotice(`blocker:${m.project}#${m.key}`, m.acc.blocker));
-  if (m.acc?.conflicts) {
-    const [head, ...files] = m.acc.conflicts.split(': ');
-    top.append(foldable(`conflicts:${m.project}#${m.key}`, el('div', 'notice attention why', icon('warning', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), work(el('span', '', files.join(': ')), 'files'))), 'why-text', 2));
-  }
-  // Its checks failed on GitHub, or autopilot sent it back for them (D-076), in orange with an icon.
-  if (m.acc?.failedChecks) {
-    const [head, ...names] = m.acc.failedChecks.split(': ');
-    top.append(foldable(`checks:${m.project}#${m.key}`, el('div', 'notice attention why', icon('github-action', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), names.join(': '))), 'why-text', 2));
-  }
-  // acc couldn't move its card on its GitHub Project as it entered this state (D-126): orange, with why.
-  if (m.acc?.cardFailed) {
-    top.append(foldable(`card:${m.project}#${m.key}`, el('div', 'notice attention why', icon('project', 'orange'), el('div', 'why-text conflict', el('strong', '', 'Its card couldn\'t move on its GitHub Project: '), m.acc.cardFailed)), 'why-text', 2));
-  }
-  // Its files beside other tasks', each file in full (D-093): the icon and the words, in the look's tone.
-  if (m.acc?.files) {
-    const f = m.acc.files;
-    const [head, ...rest] = f.label.split(': ');
-    const tone = f.tone === 'orange' ? ' attention' : f.tone === 'blue' ? ' waits' : '';
-    top.append(foldable(`files:${m.project}#${m.key}`, el('div', `notice${tone} why`, icon(f.icon, f.tone), el('div', 'why-text', el('strong', '', rest.length ? `${head}: ` : head), work(el('span', '', rest.join(': ')), 'files'))), 'why-text', 2));
-  }
+  // What needs the person first, above the tabs: why it's stuck (D-052), its conflicts, checks failed on GitHub
+  // (D-076), a card that couldn't move (D-126) and the files it shares (D-093), each a banner closed until opened (T-168).
+  // Then the page's content in tabs (T-134). On a narrow page the banners still come first (T-41).
+  const top = el('div', 'ticket-top', ...renderBanners(m));
   // The tab to show is chosen before its parts are drawn, so Ticket's activity knows a comment a link asked for.
   const tabs = taskTabs(m);
   const chosen = chooseTab(m, tabs);
@@ -296,16 +277,6 @@ function moveFeed(h: { from: string | null; to: string; by: string; look: Look }
   if (h.to === 'blocked') return { icon: 'circle-slash', tone: 'orange', verb: 'blocked it', pill: false };
   if (h.to === 'done') return { icon: sync ? 'git-merge' : 'check', tone: 'blue', verb: sync ? 'merged its pull request:' : 'moved it to', pill: true };
   return { icon: h.look.icon, tone: h.look.tone, verb: 'moved it to', pill: true };
-}
-
-/**
- * Why it's blocked, above the tabs (T-146): its headline, then a bullet per thing, each long one folding on its
- * own. A note with no shape is its paragraph, its first two lines and Show all, as before.
- */
-function blockedNotice(key: string, n: AgentNote): HTMLElement {
-  const lead = el('strong', '', 'Why it\'s blocked: ');
-  if (!n.shape) return foldable(key, el('div', 'notice attention why', icon('circle-slash', 'orange'), el('div', 'why-text', lead, md(n.text))), 'why-text', 2);
-  return el('div', 'notice attention why why-note', icon('circle-slash', 'orange'), drawNote(n, key, { lead }));
 }
 
 /**

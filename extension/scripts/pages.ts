@@ -180,6 +180,10 @@ export const PAGES = [
   // An agent's blocked note (T-146): in shape, and a paragraph recorded before it, split as it's drawn
   'ticket-blocked-note',
   'ticket-blocked-wall',
+  // The notices above the tabs as banners (T-168): every one closed, every one open with an answer picked, and an answer sent
+  'ticket-banners',
+  'ticket-banners-open',
+  'ticket-banners-sent',
   'ticket-waits',
   'ticket-note',
   'ticket-review',

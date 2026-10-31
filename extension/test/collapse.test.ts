@@ -83,7 +83,7 @@ test('a notice that needs the person stays on top, above the tabs; no section is
   const m: TicketModel = { ...base, acc: { ...base.acc!, blocker: noteInWords('Waiting on the client\'s answer about the renewal date.') } };
   assert.ok(m.acc?.blocker && m.analysis, 'the fixture has a notice and a plan');
   const { top, main } = drawn(m);
-  assert.ok(top && top.all('notice').length >= 1, 'the notice is in the top band');
+  assert.ok(top && top.all('banner').length >= 1, 'the notice, a banner (T-168), is in the top band');
   assert.equal(top.all('cc-section').length + top.all('analysis').length + top.all('task-tabs').length, 0, 'no plan and no tabs in the top band');
   assert.ok(names(panelOf(main, 'plan')!).includes('plan'));
 });

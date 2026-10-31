@@ -301,17 +301,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-work' | 'ticket-deploy-deployed' | 'ticket-deploy-busy' | 'ticket-deploy-checking' | 'ticket-deploy-pick-off' | 'ticket-deploy-off' | 'ticket-agent-failed' | 'ticket-blocked-wall' | 'setup';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-work' | 'ticket-deploy-deployed' | 'ticket-deploy-busy' | 'ticket-deploy-checking' | 'ticket-deploy-pick-off' | 'ticket-deploy-off' | 'ticket-agent-failed' | 'ticket-blocked-wall' | 'ticket-banners' | 'setup';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
 /** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118); ACME-12's Changes tab in review, deployed once, and with an agent deploying to UAT (T-158); and ACME-12 blocked with a note recorded as one paragraph (T-146). */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; busy: Model; checking: Model; pickOff: Model; off: Model; work: Model; agentFailed: Model; wall: Model; setup: Model }
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; busy: Model; checking: Model; pickOff: Model; off: Model; work: Model; agentFailed: Model; wall: Model; banners: Model; setup: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-work' ? models.work : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-busy' ? models.busy : c.page === 'ticket-deploy-checking' ? models.checking : c.page === 'ticket-deploy-pick-off' ? models.pickOff : c.page === 'ticket-deploy-off' ? models.off : c.page === 'ticket-agent-failed' ? models.agentFailed : c.page === 'ticket-blocked-wall' ? models.wall : c.page === 'setup' ? models.setup : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-work' ? models.work : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-busy' ? models.busy : c.page === 'ticket-deploy-checking' ? models.checking : c.page === 'ticket-deploy-pick-off' ? models.pickOff : c.page === 'ticket-deploy-off' ? models.off : c.page === 'ticket-agent-failed' ? models.agentFailed : c.page === 'ticket-blocked-wall' ? models.wall : c.page === 'ticket-banners' ? models.banners : c.page === 'setup' ? models.setup : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -1015,21 +1015,53 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'task page: a blocked note recorded as one paragraph is drawn as a headline, a bullet per thing, each option on its own line, and code (T-146)',
+    name: 'task page: a blocked note recorded as one paragraph is drawn in its banner as a headline, a bullet per thing, each option on its own line, and code (T-146, T-168)',
     page: 'ticket-blocked-wall',
     async run(t) {
-      const notice = (): HTMLElement => t.find('.ticket-top .notice.why');
-      const items = (): HTMLElement[] => t.all('.note-item', notice());
-      t.check('its headline comes first, alone', t.find('.note-head', notice()).textContent === 'Why it\'s blocked: Plan v2 contradicts itself, so nothing can land without a person\'s choice.', notice().querySelector('.note-head')?.textContent);
-      t.check('a bullet per thing: its three', items().length === 3 && items().every((i) => i.getBoundingClientRect().height > 0), items().length);
-      const tops = t.all('.note-option', items()[0]).map((o) => Math.round(o.getBoundingClientRect().top));
+      const banner = (): HTMLDetailsElement => t.find<HTMLDetailsElement>('.ticket-top .banner[data-banner="blocked"]');
+      const items = (): HTMLElement[] => t.all('.banner-item', banner());
+      t.check('its banner\'s line is its label and headline, closed', t.find('.banner-line', banner()).textContent === 'Blocked: Plan v2 contradicts itself, so nothing can land without a person\'s choice.' && !banner().open, t.find('.banner-line', banner()).textContent);
+      await t.click(t.find('summary', banner()));
+      t.check('a click opens it: a bullet per thing, its three', banner().open && items().length === 3 && items().every((i) => i.getBoundingClientRect().height > 0), items().length);
+      const tops = t.all('.banner-option:not(.own)', items()[0]).map((o) => Math.round(o.getBoundingClientRect().top));
       t.check('each option on its own line', tops.length === 2 && tops[1]! > tops[0]!, tops);
-      t.check('the one recommended says so, in words with its icon', t.all('.note-rec', notice()).length === 2 && t.find('.note-rec', notice()).textContent === 'Recommended' && t.find('.note-rec .codicon-star-full', notice()) !== null);
-      const code = t.all('code', notice()).map((c) => c.textContent);
+      t.check('the one recommended says so, in words with its icon', t.all('.note-rec', banner()).length === 2 && t.find('.note-rec', banner()).textContent === 'Recommended' && t.find('.note-rec .codicon-star-full', banner()) !== null);
+      const code = t.all('code', banner()).map((c) => c.textContent);
       t.check('API names recorded bare are drawn as code', code.includes('Deal_Territory__c') && code.includes('Territory_Record_Page.flexipage-meta.xml'), code);
-      // Edge: drawn again from a new model, it is still a list.
+      // Edge: drawn again from a new model, it is still open, and still a list.
       await t.post({ type: 'state', model: t.model });
-      t.check('drawn again, still a list', items().length === 3);
+      t.check('drawn again, still open and still a list', banner().open && items().length === 3);
+    },
+  },
+  {
+    name: 'task page: its banners start closed, open by a click and stay open per task, and a blocked note\'s choice sends its answer to the builder and says so (T-168)',
+    page: 'ticket-banners',
+    async run(t) {
+      const banners = (): HTMLDetailsElement[] => t.all<HTMLDetailsElement>('.ticket-top .banner');
+      const banner = (id: string): HTMLDetailsElement => t.find<HTMLDetailsElement>(`.ticket-top .banner[data-banner="${id}"]`);
+      t.check('five banners, each closed, its detail out of view', banners().length === 5 && banners().every((b) => !b.open && !t.find('.banner-body', b).checkVisibility()), banners().map((b) => b.open));
+      t.check('each is one line high', banners().every((b) => t.find('summary', b).getBoundingClientRect().height < 40), banners().map((b) => t.find('summary', b).getBoundingClientRect().height));
+      const head = t.find<HTMLElement>('summary', banner('files'));
+      head.focus();
+      t.check('its line takes focus, so the keyboard can open it', document.activeElement === head);
+      await t.click(head);
+      t.check('a click opens it, and its files show', banner('files').open && t.all('.banner-lines li', banner('files')).length === 3);
+      t.check('the tab remembers it open', ((t.memory().opened ?? []) as string[]).some((k) => k.startsWith('banner:files:') && k.endsWith('#ACME-12')), t.memory().opened);
+      await t.post({ type: 'state', model: t.model });
+      t.check('drawn again, it stays open and the others closed', banner('files').open && !banner('blocked').open);
+      await t.click(t.find('summary', banner('blocked')));
+      const radio = (): HTMLInputElement => t.find<HTMLInputElement>('.banner-choice input[type="radio"]', banner('blocked'));
+      const send = (): HTMLButtonElement => t.find<HTMLButtonElement>('.banner-send .btn', banner('blocked'));
+      t.check('Send is off until there is an answer', send().disabled);
+      t.check('the choice is three options at most, then own words', t.all('.banner-choice', banner('blocked'))[0]!.querySelectorAll('input[type="radio"]').length <= 4);
+      await t.click(radio());
+      t.check('picked, Send is on', radio().checked && !send().disabled);
+      await t.click(send());
+      const asked = t.sent('blocked-answer').at(-1);
+      t.check('Send gives the answer to the builder, for its task and question', asked?.task === 'ACME-12' && asked?.item === 0 && /The answer: a\)/.test(String(asked?.text)), asked);
+      t.check('while it is on its way, Send says so', send().textContent?.includes('Sending') === true, send().textContent);
+      await t.post({ type: 'blocked-answered', project: asked?.project, task: 'ACME-12', item: 0, ok: true });
+      t.check('then the question says the answer was sent, and the banner\'s line says so', t.find('.banner-sent', banner('blocked')).textContent?.startsWith('Your answer was sent to its builder') === true && t.find('.banner-done', banner('blocked')).textContent === 'Answer sent');
     },
   },
   {
@@ -1044,7 +1076,7 @@ export const CASES: Case[] = [
       t.check('it opens on Plan, which needs the person', on() === 'plan' && visible().join() === 'plan', { on: on(), visible: visible() });
       const needs = t.find('.task-tab-needs', tab('plan'));
       t.check('Plan says it needs you in words, with an icon, in view', needs.textContent === 'needs you' && needs.querySelector('.codicon-bell') !== null && needs.getBoundingClientRect().width > 0, needs.outerHTML);
-      t.check('its name, its visible words, says so to a screen reader', !tab('plan').hasAttribute('aria-label') && /^Plan\s*needs you$/.test(tab('plan').innerText.trim()), tab('plan').innerText);
+      t.check('its name, its visible words, says so to a screen reader', !tab('plan').hasAttribute('aria-label') && /^Plan & build\s*needs you$/.test(tab('plan').innerText.trim()), tab('plan').innerText);
       t.check('each panel is named by its tab', t.all('[role="tabpanel"]').every((p) => document.getElementById(p.getAttribute('aria-labelledby') ?? '')?.getAttribute('aria-controls') === p.id));
       tab('plan').focus();
       await press(t, tab('plan'), 'ArrowRight');
@@ -2909,7 +2941,10 @@ const caseNamed = (start: string): string => {
 export const MUTANTS: Mutant[] = [
   { name: 'the button shows nothing while it waits', file: 'working.ts', find: 'const on = !!working.what(was.key);', replace: 'const on = false;', kills: [caseNamed('working: a card\'s Clean up says Cleaning up…')] },
   { name: 'a cleaned-up task stays in Done', file: 'working.ts', find: 'cleaned.add(cleanedKey(msg.ref.project, msg.ref.task));', replace: 'void 0;', kills: [caseNamed('working: a task Clean up removed leaves Done')] },
-  { name: 'a note is drawn as one paragraph again', file: 'task-page.ts', find: "if (!n.shape) return foldable(key, el('div', 'notice attention why',", replace: "if (n) return foldable(key, el('div', 'notice attention why',", kills: [caseNamed('task page: a blocked note recorded as one paragraph')] },
+  { name: 'a note is drawn as one paragraph again', file: 'banners.ts', find: "if (!items.length) return el('div', 'banner-detail-text', md(n.text));", replace: "if (n) return el('div', 'banner-detail-text', md(n.text));", kills: [caseNamed('task page: a blocked note recorded as one paragraph')] },
+  // The banners above a ticket's tabs (T-168): one drawn open by default, and a Send that gives the builder nothing.
+  { name: 'a banner is drawn open by default', file: 'banners.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = true;', kills: [caseNamed('task page: its banners start closed')] },
+  { name: 'a banner\'s Send gives the builder nothing', file: 'banners.ts', find: "api.postMessage({ type: 'blocked-answer',", replace: "void ({ type: 'blocked-answer',", kills: [caseNamed('task page: its banners start closed')] },
   // Set up cloud builders (T-145): Next on before its step passes, the token kept in the page, and a field's button on before what's typed fits.
   { name: 'cloud setup: Next goes on before the step passes', file: 'cloud-setup.ts', find: 'go.disabled = m.next ? !m.next.can : !m.cancel.can;', replace: 'go.disabled = false;', kills: [caseNamed('cloud setup: Next stays off')] },
   { name: 'cloud setup: the token is written to the tab\'s memory', file: 'cloud-setup.ts', find: "  if (action === 'keepToken') cloudTyped.delete(`${m.id}:token`);", replace: "  if (action === 'keepToken') api.setState({ ...(api.getState() as object), token: value });", kills: [caseNamed('cloud setup: the token is typed hidden')] },

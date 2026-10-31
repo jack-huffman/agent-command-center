@@ -10,8 +10,8 @@ import { type Child, el, foldable, icon, md, rememberedFold } from './dom.ts';
 /** A thing longer than this folds to its first two lines, with Show all under it. */
 export const ITEM_FOLD = 160;
 
-/** An option's words, without the "(recommended)" its mark says. */
-const optionWords = (o: NoteOption): string => (o.recommended ? o.text.replace(/\s*\(recommended\)/i, '').trim() : o.text);
+/** An option's words, without the "(recommended)" its mark says: the banner's choice (T-168) shows them too. */
+export const optionWords = (o: NoteOption): string => (o.recommended ? o.text.replace(/\s*\(recommended\)/i, '').trim() : o.text);
 
 /** One option, on its own line: its letter, its words, and Recommended with an icon where the agent picked it. */
 function optionLine(o: NoteOption): HTMLElement {

@@ -91,7 +91,8 @@ test('checks that failed on GitHub say so on the card, the tracker\'s card and t
   const main = pageSource();
   assert.match(main, /card\.failedChecks \? el\('div', 'card-note conflict', icon\('github-action'\)/);
   assert.match(main, /c\.acc\?\.failedChecks \? el\('div', 'card-note conflict tcard-conflict', icon\('github-action'\)/);
-  assert.match(main, /icon\('github-action', 'orange'\)/);
+  // On the task page, a banner above its tabs (T-168), orange with GitHub's checks icon.
+  assert.match(main, /id: 'checks', icon: 'github-action', tone: 'orange'/);
   assert.match(pageStyles(), /\.card-note \{[^}]*color: var\(--orange\)/);
 });
 
@@ -265,7 +266,8 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   // Drawn with its icon and words, on the card and the page, and the page and menus may run both commands.
   const main = pageSource();
   assert.match(main, /card\.files \? el\('div', 'card-agent', status\(card\.files\)\) : null/);
-  assert.match(main, /if \(m\.acc\?\.files\)/);
+  // On the task page, the files banner above its tabs (T-168), in the look's own icon and tone.
+  assert.match(main, /const look = a\.files;/);
   for (const command of ['acc.task.dispatchAnyway', 'acc.task.stopWaiting']) {
     assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === command), command);
     assert.match(readFileSync(join(root, 'src', 'model', 'tasks.ts'), 'utf8'), new RegExp(`'${command.replace('.', '\\.')}'`));

@@ -30,6 +30,7 @@ const RADIO_MODULES: Record<string, string> = {
   'dropdown.ts': 'exempt: the Connect modal\'s lists (T-140) are things to pick from (projects, boards, teams, epics), not questions; each is one dropdown, a listbox, with a box to find a choice in a long list',
   'dispatch-sheet.ts': 'exempt: the dispatch sheet\'s model, effort and place are settings, each a short fixed list',
   'person-menu.ts': 'exempt: the person filter is a menu of the people on the project, not a question',
+  'banners.ts': 'a blocked note\'s question (T-168): the banner shows its first CHOICE_MAX options, pinned to OPTIONS_MAX, then In your own words; banners.test.ts draws a note with four options and finds three plus own words',
   'board-switch.ts': 'navigation, not a question (T-127): up to SEGMENTED_MOST boards are a row of buttons beside My work, with no radio group; past it, one menu of the boards to find and pick from, as the person filter is a menu of people. board-switch.test.ts pins both',
 };
 

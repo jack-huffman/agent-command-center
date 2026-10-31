@@ -5,7 +5,7 @@
 
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
 import { askOf, unchosen } from '../../../packages/core/src/plan.ts';
-import { type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
+import { type FileShare, type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
 import type { RatchetLimit, RatchetSpec } from '../../../packages/core/src/config.ts';
 import { cardFailure } from '../../../packages/core/src/cards.ts';
 import { editedWords, editRefusal } from '../../../packages/core/src/edit.ts';
@@ -25,6 +25,7 @@ import { conflictLine, failedChecksLine } from '../logic/tasks.ts';
 import { accLook, type BoardInput, chip, type PersonChip, priorityIcon, statusLook, typeIcon } from './boards.ts';
 import { type Action, displayLook, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
 import { cardActions, filesLook, placeLook } from './cards.ts';
+import { type BlockedReply, blockedReply, sharedFiles } from './banners.ts';
 import { groupLook } from './group-check.ts';
 import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.ts';
 import { type CriteriaIn, type TicketCriteria, ticketCriteria } from './criteria.ts';
@@ -123,6 +124,10 @@ export interface TicketAcc {
   cardFailed: string | null;
   /** Its files beside other tasks', each file in full (D-093), or null. */
   files: Look | null;
+  /** The files it shares with tasks in flight, each task's (T-168): its banner counts them, and lists them when opened. */
+  shares: FileShare[];
+  /** Whether a person can answer its blocked builder from its banner (T-168), and why not. */
+  reply: BlockedReply;
   agent: Look | null;
   /** The model its agent runs with (D-086). */
   model: string | null;
@@ -531,7 +536,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const has = (f: TrackerField) => !lacks.some((l) => l.field === f);
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
-    look: accLook(i.row, true), state: i.row.state, environment: i.task.environment, notes: i.task.notes?.trim() ? fromMarkdown(i.task.notes) : null, waitingOn: i.row.deps, blocker: noteInWords(i.task.blocker), conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: reasonInWords(cardFailure(i.task)?.replace(/[.\s]+$/, '')), files: filesLook(i.row, true),
+    look: accLook(i.row, true), state: i.row.state, environment: i.task.environment, notes: i.task.notes?.trim() ? fromMarkdown(i.task.notes) : null, waitingOn: i.row.deps, blocker: noteInWords(i.task.blocker), conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: reasonInWords(cardFailure(i.task)?.replace(/[.\s]+$/, '')), files: filesLook(i.row, true), shares: sharedFiles(i.row), reply: blockedReply(i.task),
     agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, effort: i.row.effort ?? null, agentName: i.task.run?.name ?? null, place: placeLook(i.row), cloudUrl: i.row.cloud?.url ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: checkRows(i.checks, i.task.run?.branch ?? null),
     groups: (i.task.groupChecks ?? []).map(groupLook).reverse(),
     // Why it blocked or moved, whoever wrote it, in process words (GH-163).

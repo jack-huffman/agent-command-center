@@ -59,7 +59,7 @@ import { sampleRuns } from './fixtures/runs.ts';
 import { REVIEW_RUN, type ReviewSample, sampleReviewRun } from './fixtures/dock-review.ts';
 import { RUN_SAMPLE_ID, type RunSample, sampleRunView } from './fixtures/run-view.ts';
 import { sampleStepRun, STEP_SAMPLE_ID, STEP_SAMPLE_OPEN, type StepSample } from './fixtures/run-steps.ts';
-import { BLOCKED_WALL, CLIENTS, ROOT } from './fixtures/shared.ts';
+import { BLOCKED_NOTE, BLOCKED_WALL, CLIENTS, ROOT } from './fixtures/shared.ts';
 import { noteInWords } from '../src/logic/relayed.ts';
 import { samplePerTokenSetup, sampleSettingsHub, sampleTrackerBoards } from './fixtures/settings.ts';
 import { sampleStepOf } from './fixtures/agents.ts';
@@ -239,6 +239,8 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'ticket-waits') return sampleAgentPanelTicket(now, 'queued');
   // A blocked note (T-146): in shape, and a paragraph recorded before it.
   if (kind === 'ticket-blocked-note' || kind === 'ticket-blocked-wall') return sampleAgentPanelTicket(now, kind === 'ticket-blocked-note' ? 'note' : 'wall');
+  // Every banner above the tabs (T-168): closed, open, and with the blocked note's answer sent.
+  if (kind === 'ticket-banners' || kind === 'ticket-banners-open' || kind === 'ticket-banners-sent') return sampleAgentPanelTicket(now, 'banners');
   if (kind === 'ticket-note') return sampleTicket(now, 'ACME-20');
   // ACME-19 in rework, in its own tab, with Dispatch's sheet over it (D-168), or the task sheet (T-74).
   if (kind === 'ticket-review' || kind === 'ticket-dispatch' || kind === 'ticket-edit') return sampleTicket(now, 'ACME-19');
@@ -374,6 +376,9 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   });
 }
 
+/** Every banner the banners' sample draws above its tabs (T-168), to open them all. */
+const BANNER_IDS = ['blocked', 'conflicts', 'checks', 'card', 'files'] as const;
+
 /** A run of acc's steps open in the panel (T-65), with the step its sample opens. */
 function stepsState(k: StepSample): unknown {
   const id = STEP_SAMPLE_ID[k];
@@ -475,6 +480,10 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   // The blocked note's points opened under its line (T-146).
   : kind === 'overview-blocked' ? { opened: [`note-fold:needs:t:${ROOT}:ACME-18`] }
   : kind === 'ticket-agent-more' ? { opened: [`agent-more:${ROOT}#ACME-12`] }
+  // The banners above the tabs (T-168): each opened, the first question's recommended answer picked; then the blocked
+  // banner opened with that answer sent, as the page keeps it once the builder has it.
+  : kind === 'ticket-banners-open' ? { opened: BANNER_IDS.map((id) => `banner:${id}:${ROOT}#ACME-12`), drafts: { [`blocked-pick:${ROOT}#ACME-12:0`]: 'a', [`blocked-words:${ROOT}#ACME-12:1`]: 'The service layout, as the support team uses it', [`blocked-pick:${ROOT}#ACME-12:1`]: 'own' } }
+  : kind === 'ticket-banners-sent' ? { opened: [`banner:blocked:${ROOT}#ACME-12`], drafts: { [`blocked-sent:${ROOT}#ACME-12:0`]: JSON.stringify({ about: noteInWords(BLOCKED_NOTE)!.headline, answer: 'a) `Territory__c` on Account' }) } }
   // ACME-21's plan (T-97): its second choice's own option open, with More open for its wording (T-136). Choices and
   // Questions open by themselves while they wait on the person.
   // Approved, a change to its second choice asks first, as Choose this on Backfill too leaves it; the later plans
@@ -827,7 +836,7 @@ async function behaviourRun(chrome: string, jobs: number): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark'), deployed: sampleModel('ticket-deploy-deployed', now, 'dark'), busy: sampleModel('ticket-deploy-busy', now, 'dark'), checking: sampleModel('ticket-deploy-checking', now, 'dark'), pickOff: sampleModel('ticket-deploy-pick-off', now, 'dark'), off: sampleModel('ticket-deploy-off', now, 'dark'), work: sampleModel('ticket-deploy-work', now, 'dark'), agentFailed: sampleModel('ticket-agent-failed', now, 'dark'), wall: sampleModel('ticket-blocked-wall', now, 'dark'), setup: sampleModel('setup', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark'), deployed: sampleModel('ticket-deploy-deployed', now, 'dark'), busy: sampleModel('ticket-deploy-busy', now, 'dark'), checking: sampleModel('ticket-deploy-checking', now, 'dark'), pickOff: sampleModel('ticket-deploy-pick-off', now, 'dark'), off: sampleModel('ticket-deploy-off', now, 'dark'), work: sampleModel('ticket-deploy-work', now, 'dark'), agentFailed: sampleModel('ticket-agent-failed', now, 'dark'), wall: sampleModel('ticket-blocked-wall', now, 'dark'), banners: sampleModel('ticket-banners', now, 'dark'), setup: sampleModel('setup', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, jobs, run: (c, args, slot) => chromeAsync(c, [profileArg(work, slot), ...args]), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;
