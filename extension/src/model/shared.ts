@@ -70,7 +70,7 @@ export interface ProfileLike {
 export interface ProjectLike {
   name: string;
   root: string;
-  agents?: { builder: ProfileLike; reviewer: ProfileLike };
+  agents?: { builder: ProfileLike; planner: ProfileLike; reviewer: ProfileLike };
   /**
    * autonomy: what autopilot may do on its own (D-055), when the config says. autopilot.autoMerge: whether
    * it merges pull requests (GH-67). trackers: which owns a ticket's key (D-066).

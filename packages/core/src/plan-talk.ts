@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { agentArgs } from './agents.ts';
+import { roleArgs } from './agents.ts';
 import { type Analysis, analystDir, analystEnv, analystFlags, analyzing, answerAnalysis, fileId, type PlanNote, readAnalysis, writeAnalysis } from './analyze.ts';
 import { writeAtomic } from './atomic.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
@@ -323,7 +323,7 @@ export function talkPlan(paths: RepoPaths, config: Config, id: string, message: 
   let out: RunResult;
   try {
     out = run('claude', [
-      '-p', '--resume', session, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
+      '-p', '--resume', session, '--permission-mode', 'dontAsk', ...roleArgs(config, 'planner'),
       '--output-format', 'json', '--json-schema', JSON.stringify(TALK_SCHEMA), '--append-system-prompt', TALK_SYSTEM,
       ...analystFlags(paths, config, cwd, deps.accCommand),
     ], { cwd, input: talkPrompt(a, text, about), env: analystEnv(config, deps.env, id), timeoutMs: 20 * 60_000 });

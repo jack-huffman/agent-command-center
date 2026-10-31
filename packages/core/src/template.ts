@@ -48,6 +48,7 @@ export interface TemplateGates {
 export interface TemplateAgents {
   max?: number;
   builder?: Partial<AgentProfile>;
+  planner?: Partial<AgentProfile>;
   reviewer?: Partial<AgentProfile>;
 }
 
@@ -181,7 +182,7 @@ export function parseTemplate(raw: unknown): TemplateParse {
       const a = raw.agents;
       checkKeys(a, 'agents', ALLOWED.agents, PROJECT_ONLY.agents, errors);
       for (const role of AGENT_ROLES) if (isObj(a[role])) checkKeys(a[role] as Record<string, unknown>, `agents.${role}`, ALLOWED.role, {}, errors);
-      probe.agents = { max: a.max, builder: a.builder, reviewer: a.reviewer };
+      probe.agents = { max: a.max, builder: a.builder, planner: a.planner, reviewer: a.reviewer };
       const roleOf = (role: AgentRole): Partial<AgentProfile> | undefined => {
         const r = a[role];
         if (!isObj(r)) return undefined;
@@ -365,7 +366,7 @@ export function overlayEnvironments(tEnvs: TemplateEnvironment[], base: RawEnv[]
 
 export interface Settings {
   gates: TemplateGates & { required: string[]; commands: Record<string, string> };
-  agents: { max: number; permissionMode: string; builder?: Partial<AgentProfile>; reviewer?: Partial<AgentProfile> };
+  agents: { max: number; permissionMode: string; builder?: Partial<AgentProfile>; planner?: Partial<AgentProfile>; reviewer?: Partial<AgentProfile> };
   autonomy: Autonomy;
 }
 
@@ -382,7 +383,7 @@ export function overlaySettings(t: Template, base: Settings): Settings {
       ...(g.heavy ? { heavy: [...g.heavy] } : {}),
       ...(g.severity !== undefined ? { severity: g.severity } : {}),
     },
-    agents: { ...base.agents, ...(a.max !== undefined ? { max: a.max } : {}), ...role('builder'), ...role('reviewer') },
+    agents: { ...base.agents, ...(a.max !== undefined ? { max: a.max } : {}), ...role('builder'), ...role('planner'), ...role('reviewer') },
     autonomy: t.autonomy ?? base.autonomy,
   };
 }
@@ -453,7 +454,7 @@ export function describeTemplate(t: Template): string[] {
   if (t.tracker) lines.push(`Tracker: ${trackerWords(t.tracker)}`);
   if (t.autonomy) lines.push(`Autonomy: ${t.autonomy}`);
   if (t.agents?.max !== undefined) lines.push(`Agents: at most ${t.agents.max} at once`);
-  for (const role of AGENT_ROLES) if (t.agents?.[role]) lines.push(`${role === 'builder' ? 'Builders' : 'Reviewers'}: ${roleWords(t.agents[role]!)}`);
+  for (const role of AGENT_ROLES) if (t.agents?.[role]) lines.push(`${role === 'builder' ? 'Builders' : role === 'planner' ? 'Planning agents' : 'Reviewers'}: ${roleWords(t.agents[role]!)}`);
   if (t.rules) lines.push(`Rules copied into .acc/rules/: ${t.rules.join('; ')}`);
   return lines;
 }

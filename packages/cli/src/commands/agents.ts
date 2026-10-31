@@ -76,7 +76,7 @@ function cmdAgentsMax(o: Opts, configFile: string, ledgerFile: string, value: st
   return 0;
 }
 
-function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined): number {
+function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined, modelArg?: string): number {
   const { paths } = project(process.cwd());
   // Shown from the project's own config, so where each value comes from is clear.
   const { config: projectConfig } = loadConfig(paths.config);
@@ -84,6 +84,7 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   if (sub === 'autonomy') return cmdAutonomy(o, paths.config, roleArg);
   if (sub === 'auto-merge') return cmdAutoMerge(o, paths.config, roleArg);
   if (sub === 'max') return cmdAgentsMax(o, paths.config, paths.ledger, roleArg);
+  if (sub === 'model') return cmdAgentsModel(o, paths, roleArg, modelArg);
   if (!sub || sub === 'show') {
     const v = views();
     const from = { clone: ' (this clone)', project: ' (project)', acc: ' (acc\'s default)', default: '' };
@@ -93,7 +94,7 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
     }).join('\n'), v);
     return 0;
   }
-  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents autonomy [manual|review] | acc agents auto-merge [on|off] | acc agents max [<n>]');
+  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|planner|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents model <role> [<model>] [--effort <e>] | acc agents autonomy [manual|review] | acc agents auto-merge [on|off] | acc agents max [<n>]');
   noAgent(o, 'change what agents run with');
   const change: ProfileChange = {};
   if (o.model !== undefined) change.model = o.model as string;
@@ -108,6 +109,32 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   setProfile(run, paths.root, paths.config, roleArg as AgentRole, change, o.project ? 'project' : 'clone');
   const after = profileView(loadConfig(paths.config).config, run, paths.root, roleArg as AgentRole);
   out(o, () => `${roleArg}: model ${after.model}${after.from.model === 'acc' ? ' (acc\'s default)' : ''}, effort ${after.effort ?? 'default'}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ''}. ${o.project ? 'Set in .acc/config.json: commit it to share it.' : 'Set for this clone only.'} The next ${roleArg} uses it.`, after);
+  return 0;
+}
+
+/**
+ * The model and effort a role runs with, set for the whole project in .acc/config.json (T-163): the same as
+ * Settings' Change…, for the person to commit. `default` takes the setting out, so acc's default for the role
+ * applies again, and later changes to the defaults reach the project. With neither a model nor --effort it shows the role.
+ */
+function cmdAgentsModel(o: Opts, paths: { root: string; config: string }, roleArg: string | undefined, model: string | undefined): number {
+  if (!roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents model <builder|planner|reviewer> [<model>|default] [--effort <low|medium|high|xhigh|max|default>]');
+  const role = roleArg as AgentRole;
+  const effort = typeof o.effort === 'string' ? o.effort : undefined;
+  const view = () => profileView(loadConfig(paths.config).config, run, paths.root, role);
+  const words = (v: ReturnType<typeof view>) => `${role}: model ${v.model}${v.from.model === 'acc' ? ' (acc\'s default)' : ''}, effort ${v.effort ?? 'default'}${v.from.effort === 'acc' ? ' (acc\'s default)' : ''}`;
+  if (model === undefined && effort === undefined) {
+    const v = view();
+    out(o, () => words(v), v);
+    return 0;
+  }
+  noAgent(o, 'change what agents run with');
+  const change: ProfileChange = {};
+  if (model !== undefined) change.model = model === 'default' ? null : model;
+  if (effort !== undefined) change.effort = effort === 'default' ? null : effort as never;
+  setProfile(run, paths.root, paths.config, role, change, 'project');
+  const after = view();
+  out(o, () => `${words(after)}. Set in .acc/config.json: commit it to share it. The next ${role} uses it.`, after);
   return 0;
 }
 
@@ -344,9 +371,13 @@ export const area: CommandArea = {
                                         block, as when the Mac slept: its own session, in its worktree, with the
                                         rules it was dispatched with. It's told it was cut off, or --message
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
-  acc agents                            The model and effort builders and reviewers run with, and where each is
-                                        set. A model nobody set is acc's default, claude-opus-5-5
-  acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
+  acc agents                            The model and effort builders, the planning agent and reviewers run with,
+                                        and where each is set. A model nobody set is acc's default for the role:
+                                        claude-opus-5-5, with medium effort for the planning agent and reviewers
+  acc agents model <builder|planner|reviewer> [<model>|default] [--effort <low|medium|high|xhigh|max|default>]
+                                        Show a role's model and effort, or set them in .acc/config.json for the
+                                        whole project; default takes the setting out, so acc's default applies
+  acc agents set <builder|planner|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
                 [--clear <model|effort|fallback-model>]... [--project]
                                         Change them for this clone, or with --project in .acc/config.json
   acc agents autonomy [manual|review]   What autopilot may do on its own, or change it in .acc/config.json
@@ -389,9 +420,9 @@ export const area: CommandArea = {
   // --project names the project for acc init, and is a plain switch for acc agents set: give the switch a
   // value, so the Command Center's "for the project" works (D-036).
   argv: { agents: (argv) => argv.map((x) => (x === '--project' ? '--project=yes' : x)) },
-  subcommands: { agents: ['show', 'set', 'autonomy', 'auto-merge', 'max'], machine: ['heavy-slots', 'agents'] },
+  subcommands: { agents: ['show', 'set', 'model', 'autonomy', 'auto-merge', 'max'], machine: ['heavy-slots', 'agents'] },
   commands: {
-    agents: (o, rest) => cmdAgents(o, rest[0], rest[1]),
+    agents: (o, rest) => cmdAgents(o, rest[0], rest[1], rest[2]),
     machine: (o, rest) => cmdMachine(o, rest[0], rest[1]),
     dispatch: (o, rest) => cmdDispatch(o, rest[0]),
     done: (o, rest) => {

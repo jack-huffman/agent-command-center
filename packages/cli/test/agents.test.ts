@@ -106,13 +106,13 @@ test('acc agents names acc\'s default model where nobody chose one, apart from C
   const dir = repoWithConfig();
   const shown = acc(dir, ['agents']);
   assert.equal(shown.code, 0, shown.err);
-  assert.equal(shown.out, 'builder   model claude-opus-5-5 (acc\'s default), effort default\nreviewer  model claude-opus-5-5 (acc\'s default), effort default\n');
+  assert.equal(shown.out, 'builder   model claude-opus-5-5 (acc\'s default), effort default\nplanner   model claude-opus-5-5 (acc\'s default), effort medium (acc\'s default)\nreviewer  model claude-opus-5-5 (acc\'s default), effort medium (acc\'s default)\n');
   const json = acc(dir, ['agents', '--json']).json();
   assert.deepEqual([json.builder.model, json.builder.from.model, json.builder.effort, json.builder.from.effort], ['claude-opus-5-5', 'acc', null, 'default']);
-  assert.equal(json.reviewer.from.model, 'acc');
+  assert.deepEqual([json.planner.model, json.planner.effort, json.planner.from.effort, json.reviewer.from.model], ['claude-opus-5-5', 'medium', 'acc', 'acc'], 'a role of its own for planning (T-163)');
   const chosen = repoWithConfig({ ...GENERIC_CONFIG, agents: { reviewer: { model: 'claude-sonnet-5-5' } } });
   assert.match(acc(chosen, ['agents', 'set', 'builder', '--model', 'haiku']).out, /^builder: model haiku, effort default\. Set for this clone only\./);
-  assert.equal(acc(chosen, ['agents']).out, 'builder   model haiku (this clone), effort default\nreviewer  model claude-sonnet-5-5 (project), effort default\n');
+  assert.equal(acc(chosen, ['agents']).out, 'builder   model haiku (this clone), effort default\nplanner   model claude-opus-5-5 (acc\'s default), effort medium (acc\'s default)\nreviewer  model claude-sonnet-5-5 (project), effort default\n');
   assert.match(acc(chosen, ['agents', 'set', 'builder', '--clear', 'model']).out, /^builder: model claude-opus-5-5 \(acc's default\), effort default\./);
 });
 
@@ -312,4 +312,45 @@ test('acc agents set --project is a switch, as the Command Center sends it last,
   assert.equal(r.code, 0, r.err);
   assert.equal(JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8')).agents.builder.model, 'claude-opus-5-5');
   assert.match(r.out, /Set in \.acc\/config\.json/);
+});
+
+test('acc agents model: shows a role, sets its model and effort for the project, and default takes them out so acc\'s default applies again (T-163)', () => {
+  const dir = repoWithConfig();
+  const file = join(dir, '.acc', 'config.json');
+  assert.match(acc(dir, ['agents', 'model', 'planner']).out, /^planner: model claude-opus-5-5 \(acc's default\), effort medium \(acc's default\)$/m);
+  const set = acc(dir, ['agents', 'model', 'planner', 'claude-sonnet-5-5', '--effort', 'low', '--json']);
+  assert.equal(set.code, 0, set.err);
+  assert.deepEqual([set.json().model, set.json().from.model, set.json().effort, set.json().from.effort], ['claude-sonnet-5-5', 'project', 'low', 'project']);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).agents.planner, { model: 'claude-sonnet-5-5', effort: 'low' }, 'the project\'s settings, not the clone\'s git config');
+  assert.equal(acc(dir, ['agents', 'model', 'reviewer', 'default']).code, 0, 'a role with nothing set can be set to default');
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).agents.reviewer, undefined, 'and writes nothing');
+  const back = acc(dir, ['agents', 'model', 'planner', 'default', '--effort', 'default']);
+  assert.equal(back.code, 0, back.err);
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).agents.planner, undefined, 'default takes the setting out, so later changes to acc\'s defaults reach the project');
+  assert.match(back.out, /planner: model claude-opus-5-5 \(acc's default\), effort medium \(acc's default\)\. Set in \.acc\/config\.json: commit it to share it\./);
+  // A name that isn't a model, a level that isn't one, and a role that isn't one are refused, and nothing is written.
+  assert.equal(acc(dir, ['agents', 'model', 'planner', 'two words']).code, 2);
+  assert.match(acc(dir, ['agents', 'model', 'planner', 'sonnet', '--effort', 'huge']).err, /isn't an effort level/);
+  assert.match(acc(dir, ['agents', 'model', 'cook', 'sonnet']).err, /acc agents model <builder\|planner\|reviewer>/);
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).agents.planner, undefined);
+});
+
+test('acc agents set takes the planning agent too, for this clone, and the clone wins over the project, then acc\'s default (T-163)', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, agents: { planner: { model: 'claude-sonnet-5-5', effort: 'low' } } });
+  assert.match(acc(dir, ['agents']).out, /^planner   model claude-sonnet-5-5 \(project\), effort low \(project\)$/m);
+  assert.match(acc(dir, ['agents', 'set', 'planner', '--model', 'haiku']).out, /^planner: model haiku, effort low\. Set for this clone only\./);
+  assert.match(acc(dir, ['agents']).out, /^planner   model haiku \(this clone\), effort low \(project\)$/m);
+  assert.match(acc(dir, ['agents', 'set', 'planner', '--clear', 'model']).out, /^planner: model claude-sonnet-5-5/);
+});
+
+test('a builder, a reviewer and an analyst cannot change what agents run with, with acc agents model (T-163)', () => {
+  const dir = repoWithConfig();
+  for (const role of ['builder', 'reviewer', 'analyst']) {
+    const r = acc(dir, ['agents', 'model', 'planner', 'haiku'], undefined, { ACC_ROLE: role, ACC_TASK: 'T-1' });
+    assert.equal(r.code, 1, role);
+    assert.match(r.err, /can't change what agents run with\. A person does that\./, role);
+  }
+  assert.equal(JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8')).agents?.planner, undefined);
+  // Reading is still allowed: the edge case of an agent that only looks.
+  assert.equal(acc(dir, ['agents', 'model', 'planner'], undefined, { ACC_ROLE: 'builder', ACC_TASK: 'T-1' }).code, 0);
 });

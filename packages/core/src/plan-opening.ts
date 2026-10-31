@@ -8,7 +8,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { rmSync, writeFileSync } from 'node:fs';
-import { agentArgs } from './agents.ts';
+import { roleArgs } from './agents.ts';
 import { type Analysis, analystDir, analystEnv, analystFlags, analyzing, readAnalysis } from './analyze.ts';
 import { holdAwake } from './awake.ts';
 import type { Config } from './config.ts';
@@ -156,7 +156,7 @@ export function startPlan(paths: RepoPaths, config: Config, id: string, message:
   try {
     const name = sessionName({ project: config.project, key: id, title: task.title, role: 'analysis' });
     out = run('claude', [
-      '-p', ...(resume ? ['--resume', resume] : ['--session-id', session, '--name', name]), '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
+      '-p', ...(resume ? ['--resume', resume] : ['--session-id', session, '--name', name]), '--permission-mode', 'dontAsk', ...roleArgs(config, 'planner'),
       '--output-format', 'json', '--json-schema', JSON.stringify(OPENING_SCHEMA), '--append-system-prompt', OPENING_SYSTEM,
       ...analystFlags(paths, config, cwd, deps.accCommand),
     ], { cwd, input: openingPrompt(task, text, resume ? null : (ticket ?? ticketWithout(task))), env: analystEnv(config, deps.env, id), timeoutMs: 20 * 60_000 });

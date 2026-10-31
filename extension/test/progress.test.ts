@@ -25,7 +25,7 @@ const at = (min: number) => new Date(NOW - min * MIN).toISOString();
 
 const project = (name = 'Acme', path = '/r'): ProjectLike => ({
   name, root: path, branch: 'dev',
-  agents: { builder: { model: 'opus', effort: null, fallbackModel: null, from: { model: 'project', effort: 'default', fallbackModel: 'default' } }, reviewer: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } } },
+  agents: { builder: { model: 'opus', effort: null, fallbackModel: null, from: { model: 'project', effort: 'default', fallbackModel: 'default' } }, planner: { model: 'claude-opus-5-5', effort: 'medium', fallbackModel: null, from: { model: 'acc', effort: 'acc', fallbackModel: 'default' } }, reviewer: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } } },
   config: {
     github: { repo: 'o/r', account: 'me' }, profile: 'salesforce',
     environments: [

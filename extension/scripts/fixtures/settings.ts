@@ -15,6 +15,7 @@ const PORTAL: ProjectLike = {
   name: 'Acme Portal', root: '/Users/me/code/acme-portal', branch: 'staging',
   agents: {
     builder: { model: 'claude-fable-5-1', effort: null, fallbackModel: null, from: { model: 'clone', effort: 'default', fallbackModel: 'default' } },
+    planner: { model: 'claude-opus-5-5', effort: 'medium', fallbackModel: null, from: { model: 'acc', effort: 'acc', fallbackModel: 'default' } },
     reviewer: { model: 'claude-opus-5-5', effort: 'medium', fallbackModel: 'claude-haiku-4-5-20251001', from: { model: 'acc', effort: 'project', fallbackModel: 'clone' } },
   },
   config: {

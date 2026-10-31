@@ -91,6 +91,7 @@ function withAgents(more: Partial<ProjectLike['config']> = {}): ProjectLike {
     ...p, config: { ...p.config, ...more },
     agents: {
       builder: { model: 'claude-sonnet-5-5', effort: null, fallbackModel: 'claude-haiku-4-5-20251001', from: { model: 'clone', effort: 'default', fallbackModel: 'project' } },
+      planner: { model: 'claude-opus-5-5', effort: 'medium', fallbackModel: null, from: { model: 'acc', effort: 'acc', fallbackModel: 'default' } },
       reviewer: { model: 'claude-opus-5-5', effort: 'high', fallbackModel: null, from: { model: 'acc', effort: 'project', fallbackModel: 'default' } },
     },
   };
@@ -98,8 +99,10 @@ function withAgents(more: Partial<ProjectLike['config']> = {}): ProjectLike {
 const billingItem = (status: DoctorItem['status'], detail = 'Agents use your Claude subscription.'): DoctorItem => ({ id: 'A1.claude-billing', part: 'machine', title: 'Agents bill your Claude subscription', status, detail });
 
 test('How agents run says, for each part, its value and where it\'s set, in words with an icon (D-036, D-086)', () => {
-  const [builder, reviewer] = agentSettings(withAgents());
-  assert.deepEqual([builder!.label, builder!.icon, reviewer!.label, reviewer!.icon], ['Builders', 'tools', 'Reviewers', 'checklist']);
+  const [builder, planner, reviewer] = agentSettings(withAgents());
+  assert.deepEqual([builder!.label, builder!.icon, planner!.label, planner!.icon, reviewer!.label, reviewer!.icon], ['Builders', 'tools', 'Planning agent', 'lightbulb', 'Reviewers', 'checklist'], 'a row for each of the builder, the planning agent and the reviewer (T-163)');
+  // The planning agent's row marks both its model and its effort as the Command Center's default.
+  assert.deepEqual(planner!.parts.map((p) => `${p.name} ${p.value} · ${p.from.label}`), ['Model claude-opus-5-5 · the Command Center\'s default', 'Effort medium · the Command Center\'s default']);
   assert.deepEqual(builder!.parts, [
     { key: 'agents.builder.model', name: 'Model', value: 'claude-sonnet-5-5', from: { label: 'this clone', icon: 'device-desktop' } },
     { key: 'agents.builder.effort', name: 'Effort', value: 'default', from: { label: 'Claude Code\'s default', icon: 'circle-outline' } },
@@ -154,7 +157,7 @@ test('How agents run names each project, and says once what this machine\'s agen
   const portal: ProjectLike = { ...withAgents({ autonomy: 'review' }), name: 'Portal', root: '/p' };
   const run = howAgentsRun([withAgents({ autonomy: 'manual' }), hub().projects[0]!, portal], [billingItem('pass')]);
   // Every project with agents' settings, under its own name; one without them isn't listed.
-  assert.deepEqual(run.projects.map((p) => [p.project, p.root, p.roles.length, p.autonomy?.look.label]), [['Acme', '/r', 2, 'manual'], ['Portal', '/p', 2, 'review']]);
+  assert.deepEqual(run.projects.map((p) => [p.project, p.root, p.roles.length, p.autonomy?.look.label]), [['Acme', '/r', 3, 'manual'], ['Portal', '/p', 3, 'review']]);
   const toSetup = { label: 'Open Setup', icon: 'checklist', section: 'setup' };
   assert.deepEqual(run.billing, { look: { label: 'Agents use your Claude subscription', icon: 'pass', tone: 'blue' }, link: null, meaning: BILLING_MEANING });
   assert.deepEqual(howAgentsRun([], [billingItem('fail', 'Agents would bill per token: ANTHROPIC_API_KEY in the environment.')]).billing,
@@ -167,7 +170,7 @@ test('How agents run is a built part, or says no project is onboarded yet, with 
   const some = part([withAgents({ autonomy: 'review' })]);
   assert.deepEqual([some.built, some.today, some.links], [true, null, []]);
   assert.match(some.summary, /Each Change… asks the Command Center to make the change\.$/);
-  assert.deepEqual(some.details, ['This clone\'s choice is kept in its git config, where nobody else sees it. A project\'s is kept in the project\'s settings, for you to commit and share.']);
+  assert.deepEqual(some.details, ['Change… writes the project\'s settings, for you to commit and share. A choice for this clone only is kept in its git config, where nobody else sees it.']);
   const none = part([]);
   assert.deepEqual([none.built, none.links], [true, [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]]);
   assert.match(none.details[0]!, /^No project in this workspace is onboarded yet\./);
@@ -182,6 +185,7 @@ test('How agents run is a built part, or says no project is onboarded yet, with 
 test('each Change… asks acc through a command the page may ask for, named for what and whose it changes (D-064)', () => {
   const page = pageSource('settings.ts');
   assert.ok(page.includes("argButton('acc.agents.configure', 'Change…', 'edit', `${r.role}|${s.root}`)"));
+  assert.ok(page.includes("r.role === 'planner'"), 'the planning agent\'s Change… is named for it');
   assert.ok(page.includes("argButton('acc.agents.autonomy', 'Change…', 'edit', s.root)"));
   assert.ok(page.includes("s.autoMerge.settable ? argButton('acc.agents.autoMerge', 'Change…', 'edit', s.root) : null"), 'none where it can\'t change');
   assert.ok(page.includes("change.setAttribute('aria-label', `Change ${changes}`)") && page.includes('in ${s.project}`'), 'each names its project');
@@ -194,7 +198,7 @@ test('each Change… asks acc through a command the page may ask for, named for 
     assert.ok(agents.includes(`reg('${id}', (arg?: unknown) => this.${fn}(arg))`), `${id} is registered`);
     assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === id), `${id} is contributed`);
   }
-  assert.match(agents, /this\.runAcc\(project, \['agents', 'set', role, \.\.\.args, \.\.\.\(scope\.project \? \['--project'\] : \[\]\)\]/);
+  assert.match(agents, /this\.runAcc\(project, \['agents', 'model', role, modelName \?\? 'default', '--effort', effortName \?\? 'default'\]/);
   assert.match(agents, /this\.runAcc\(project, \['agents', 'autonomy', pick\.value\]/);
   assert.match(agents, /this\.runAcc\(project, \['agents', 'auto-merge', pick\.value\]/);
   // Billing's way to Setup is a section to go to, as every part's link is.
