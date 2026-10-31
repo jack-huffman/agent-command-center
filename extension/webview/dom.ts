@@ -325,11 +325,12 @@ export const peekKey = (project: string, key: string): string => `${project}#${k
 
 /**
  * A card that opens its task in the modal over the board, not in a tab (GH-158). tracker is the tracker
- * board's; the agent board gives none, so the key decides, as acc.task.show does.
+ * board's; the agent board gives none, so the key decides, as acc.task.show does. title is the card's, which
+ * the modal shows while it loads (T-162).
  */
-export function peekable(e: HTMLElement, project: string, key: string, tracker?: number | null): HTMLElement {
+export function peekable(e: HTMLElement, project: string, key: string, tracker?: number | null, title?: string): HTMLElement {
   e.dataset.peek = peekKey(project, key);
-  return openable(e, { type: 'task-modal-open', project, key, ...(tracker === undefined ? {} : { tracker }) });
+  return openable(e, { type: 'task-modal-open', project, key, ...(tracker === undefined ? {} : { tracker }), ...(title ? { title } : {}) });
 }
 
 /**

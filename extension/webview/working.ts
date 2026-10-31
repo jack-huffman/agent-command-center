@@ -40,6 +40,10 @@ const shot = (api.getState() as { working?: string[]; refused?: Record<string, s
 for (const k of shot.working ?? []) working.start(k, 'waiting');
 for (const [k, why] of Object.entries(shot.refused ?? {})) working.settle(k, why);
 
+/** What else hears the extension's answers (T-162): a sheet that opened loading at the click, to say a refusal in it. */
+const hearing: ((msg: RanMessage) => void)[] = [];
+export const onRan = (f: (msg: RanMessage) => void): void => { hearing.push(f); };
+
 /** Actions whose question is open: the button is back, and the answer to the question is still to come. */
 const asking = new Set<string>();
 
@@ -138,6 +142,7 @@ export const cleanedKey = (project: string, task: string): string => `${project}
  * removed leaves Done at once. An answer to an action the page didn't show working changes nothing.
  */
 export function heard(msg: RanMessage): void {
+  for (const f of hearing) f(msg);
   const k = runKey(msg.command, msg.ref ?? {});
   if (!working.what(k) && !asking.has(k)) return;
   if (msg.phase === 'asked') asking.add(k);
