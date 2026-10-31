@@ -115,6 +115,12 @@ export function developmentChoices<E extends Pick<ProjectLike['config']['environ
   return { offered: can.slice(0, OPTIONS_MAX), more: Math.max(0, can.length - OPTIONS_MAX) };
 }
 
+/** The pick of which environment's next steps to change (D-205): at most three, in path order; the rest are typed by name. */
+export function nextStepChoices<E extends Pick<ProjectLike['config']['environments'][number], 'branch' | 'promotesTo'>>(config: { environments: E[] }): { offered: E[]; more: number } {
+  const all = inPromotionOrder(config.environments);
+  return { offered: all.slice(0, OPTIONS_MAX), more: Math.max(0, all.length - OPTIONS_MAX) };
+}
+
 /** Every onboarded project's pipeline, Salesforce projects first since the section is theirs above all. */
 export const pipelineProjects = (projects: ProjectLike[]): PipelineProject[] =>
   projects.map(pipelineProject).sort((a, b) => Number(b.salesforce) - Number(a.salesforce));

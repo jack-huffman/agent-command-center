@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import { developmentEnvironment } from '../../packages/core/src/pipeline.ts';
 import type { ExtensionArea } from './area.ts';
 import type { Project } from './hub.ts';
-import { developmentChoices } from './model/pipeline.ts';
+import { developmentChoices, nextStepChoices } from './model/pipeline.ts';
 import { Sidebar } from './sidebar.ts';
 
 /** The pick's last item: the person's own words (D-205), an environment named by typing. */
@@ -84,7 +84,24 @@ class PipelineCommands extends Sidebar {
     const got = await this.projectOf(arg);
     if (!got) return;
     const { project } = got;
-    const env = got.branch ? project.config.environments.find((e) => e.branch === got.branch) : (await vscode.window.showQuickPick(project.config.environments.map((e) => ({ label: e.name, description: e.promotesTo.join(', ') || 'nowhere further', value: e })), { title: `${project.name}: which environment's next steps?` }))?.value;
+    let env = got.branch ? project.config.environments.find((e) => e.branch === got.branch) : undefined;
+    if (!got.branch) {
+      // A single choice (D-205): three in path order and the person's own words, an environment's name typed.
+      const title = `${project.name}: which environment's next steps?`;
+      const { offered, more } = nextStepChoices(project.config);
+      const pick = await vscode.window.showQuickPick([
+        ...offered.map((e) => ({ label: e.name, description: e.promotesTo.join(', ') || 'nowhere further', value: e.branch })),
+        { label: `$(edit) ${OWN_WORDS}`, description: more ? `${more} more` : 'Type its name', detail: 'An environment by its name, as the project\'s settings list it.', value: OWN },
+      ], { title });
+      if (!pick) return;
+      if (pick.value === OWN) {
+        const typed = await vscode.window.showInputBox({ title, prompt: 'The environment\'s name, as the project\'s settings list it.', validateInput: (v) => (environmentNamed(project, v) ? undefined : 'No environment has that name.') });
+        if (!typed) return;
+        env = environmentNamed(project, typed);
+      } else {
+        env = project.config.environments.find((e) => e.branch === pick.value);
+      }
+    }
     if (!env) return;
     const others = project.config.environments.filter((e) => e.branch !== env.branch);
     if (!others.length) return void vscode.window.showInformationMessage(`${project.name} has no other environment for ${env.name} to go to.`);
