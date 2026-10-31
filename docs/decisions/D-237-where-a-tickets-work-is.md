@@ -38,4 +38,4 @@ Checked by `packages/core/test/where.test.ts` (a real git repo with a cherry-pic
 answer from a faked Salesforce CLI as the oracle; a mutant that says deployed when one file differs is caught)
 and `extension/test/where.test.ts`.
 
-Note (2026-10-31, D-T-167): a page draw and Refresh no longer read where the work is, and a reading no longer moves where the ticket is. A row's Check this org reads one environment, on a click, and its result is a note.
+Note (2026-10-31, D-248): a page draw and Refresh no longer read where the work is, and a reading no longer moves where the ticket is. A row's Check this org reads one environment, on a click, and its result is a note.

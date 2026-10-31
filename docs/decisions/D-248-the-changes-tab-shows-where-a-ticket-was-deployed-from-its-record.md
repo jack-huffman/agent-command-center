@@ -1,4 +1,4 @@
-## D-T-167 The Changes tab shows where a ticket was deployed from acc's record, and reads an org only when you ask (2026-10-31)
+## D-248 The Changes tab shows where a ticket was deployed from acc's record, and reads an org only when you ask (2026-10-31)
 
 T-167. The person, on 0.55.0's Changes tab for a pilot ticket whose three environments all said "Can't tell · Not
 read yet · Checking…": "why is the changes tab checking all of the environments? I don't like that approach - the

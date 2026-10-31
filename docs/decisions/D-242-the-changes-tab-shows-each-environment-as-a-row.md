@@ -66,4 +66,4 @@ and D-235 (Deploy with an agent is no longer a button of its own: Deploy… is t
   `-pick-off` (a choice off with why), `-off` (Deploy… off, a dependency in none of them), `-checking` (QA's Check again
   under way) and `-busy` (a deploy under way on its row).
 
-Note (2026-10-31, D-T-167): a row's state is now acc's record (deployed, deploy failed, merged or not deployed), not its last reading. Check again became Check this org, its result a note under the row, and a deploy to Hotfix no longer moves the ticket.
+Note (2026-10-31, D-248): a row's state is now acc's record (deployed, deploy failed, merged or not deployed), not its last reading. Check again became Check this org, its result a note under the row, and a deploy to Hotfix no longer moves the ticket.
