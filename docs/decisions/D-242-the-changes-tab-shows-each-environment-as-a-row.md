@@ -1,4 +1,4 @@
-## D-T-158 The Changes tab shows each environment as a row, and one Deploy… picks where an agent deploys (2026-10-30)
+## D-242 The Changes tab shows each environment as a row, and one Deploy… picks where an agent deploys (2026-10-30)
 
 T-158. The person sent a screenshot of a Salesforce ticket's Changes tab and wrote: "this is bad UI for a
 deployment to production." The tab said "<the development org>, deployed 3 days ago · Sandbox, next · Production, next" on

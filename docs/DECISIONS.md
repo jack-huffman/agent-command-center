@@ -249,3 +249,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-239](decisions/D-239-every-deploy-past-the-development-org-is-an-agent-s.md) | Every deploy past the development org is an agent's, to the org the person picks | 2026-10-30 |
 | [D-240](decisions/D-240-modals-open-at-the-click.md) | A modal opens the moment you click, loading, and a task's page draws from its record first | 2026-10-30 |
 | [D-241](decisions/D-241-messaging-an-agent-is-a-chat.md) | Messaging an agent looks like Claude Code's chat: your message boxed and pinned, replies full width, the message box a card | 2026-10-30 |
+| [D-242](decisions/D-242-the-changes-tab-shows-each-environment-as-a-row.md) | The Changes tab shows each environment as a row, and one Deploy… picks where an agent deploys | 2026-10-30 |
