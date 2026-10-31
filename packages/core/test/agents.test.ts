@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { agentArgs, AGENTS_MODEL_COMMAND, cloneProfile, modelOf, profileView, roleArgs, setProfile, withCloneAgents, withRoleDefaults } from '../src/agents.ts';
+import { agentArgs, AGENTS_MODEL_COMMAND, agentsModelEnabled, cloneProfile, modelOf, profileView, roleArgs, setProfile, withCloneAgents, withRoleDefaults } from '../src/agents.ts';
 import { DEFAULT_MODEL, loadConfig, parseConfig, ROLE_DEFAULTS, writeConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { GENERIC_CONFIG, makeRepo, tempDir } from './support.ts';
@@ -156,6 +156,7 @@ test('AGENTS_MODEL_COMMAND has an id and params, is enabled for a person, and re
   assert.equal(AGENTS_MODEL_COMMAND.id, 'acc.agents.model');
   assert.match(AGENTS_MODEL_COMMAND.params, /planner/);
   assert.deepEqual(AGENTS_MODEL_COMMAND.enabled({}), { ok: true });
+  assert.deepEqual(agentsModelEnabled({ agentRole: 'builder' }), AGENTS_MODEL_COMMAND.enabled({ agentRole: 'builder' }));
   for (const [role, article] of [['builder', 'A'], ['reviewer', 'A'], ['analyst', 'An']] as const) {
     assert.deepEqual(AGENTS_MODEL_COMMAND.enabled({ agentRole: role }), { ok: false, why: `${article} ${role} can't change what agents run with. A person does that.` });
   }
