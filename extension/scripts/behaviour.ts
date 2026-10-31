@@ -2565,7 +2565,7 @@ export const CASES: Case[] = [
     async run(t) {
       const guide = t.find<HTMLButtonElement>('.dp-guide');
       t.check('it is beside Deploy, on, and not a second primary button', guide.parentElement === t.find('.dp-go').parentElement && !guide.disabled && !guide.classList.contains('primary') && guide.textContent === 'Deploy with an agent', guide.className);
-      t.check('its tooltip says the person types the yes', /deploys on the yes you type/.test(guide.title), guide.title);
+      t.check('its tooltip says the approval is the yes, and the typed name only for Production or a protected org', /once you approve it, or on the name you type for Production or a protected org/.test(guide.title), guide.title);
       await t.click(guide);
       const sent = t.sent('deploy-guide');
       t.check('it asks for the guide\'s chat once, for the same step as Deploy', sent.length === 1 && sent[0]?.to === 'uat' && sent[0]?.task === (t.model as unknown as { deploy: { task: string } }).deploy.task, sent);

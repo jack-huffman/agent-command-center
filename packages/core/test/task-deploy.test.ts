@@ -16,7 +16,8 @@ import type { RecordChange } from '../src/records.ts';
 import { sfComponent } from '../src/sf-metadata.ts';
 import * as real from '../src/task-deploy.ts';
 import { confirmsOrg, deployTask, keptCheckPath, NOTHING_TO_CHECK, planTaskDeploy, readKeptCheck, TASK_DEPLOY_COMMAND, taskCheckArgs, taskDeployArgs, taskDeployBody, taskDeployEnabled, taskDeployRoute, ticketCommits, ticketPlace, yesProblem } from '../src/task-deploy.ts';
-import { deployerSettings, deployGuideLaunch, deployGuidePrompt } from '../src/deploy-guide.ts';
+import { deployerSettings, deployGuideLaunch, deployGuidePrompt, keepTypedYes } from '../src/deploy-guide.ts';
+import { keepPick, readPick } from '../src/deploy-pick.ts';
 import { listUpdates } from '../src/updates.ts';
 import { gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
@@ -161,17 +162,21 @@ function noDeployWithoutYes(m: Mod): string[] {
   return wrong;
 }
 
-test('a ticket goes only to a next step on its path after where it is now; any other environment is refused, with why', () => {
+test('a ticket goes to any environment on its path after where it is now, the person\'s pick; any other is refused, with where it is and where it can go', () => {
   const c = config();
   const t = { id: 'ACME-1', environment: 'dev', promotions: [], deploys: [] } as Pick<Task, 'id' | 'environment' | 'promotions' | 'deploys'>;
   assert.deepEqual(ticketPlace(c, t)!.next.map((e) => e.branch), ['uat', 'production'], 'dev\'s promotesTo, the usual next step first');
   assert.equal(taskDeployRoute(c, t).to.branch, 'uat', 'with none named, the first next step');
   assert.equal(taskDeployRoute(c, t, 'Production').to.branch, 'production');
-  assert.throws(() => taskDeployRoute(c, t, 'dev'), /ACME-1 is in Dev already\. Its next step is UAT, Production/);
+  assert.throws(() => taskDeployRoute(c, t, 'dev'), /ACME-1 is in Dev already\. It can go to UAT, Production\./);
   assert.throws(() => taskDeployRoute(c, t, 'staging'), /No environment "staging"/);
+  // A chain, dev to uat to production: production is two steps on, and still the person's to pick (T-156).
+  const chain = config({ environments: [{ name: 'Production', type: 'production', org: 'Acme Production' }, { name: 'UAT', type: 'full', org: 'Acme UAT', promotesTo: ['production'] }, { name: 'Dev', type: 'developer', org: 'Acme Dev', default: true, promotesTo: ['uat'] }] });
+  assert.equal(taskDeployRoute(chain, t, 'production').to.branch, 'production', 'not only the next step');
+  assert.equal(taskDeployRoute(chain, t).to.branch, 'uat', 'the usual next step when none is picked');
   const inUat = { ...t, deploys: [{ env: 'uat', org: 'Acme UAT', sha: 'a', at: '2026-10-28T10:00:00Z', jobId: 'j', paths: [], components: [], verified: 0, tests: null, checkId: '0Af1' }] };
   assert.equal(ticketPlace(c, inUat)!.at.branch, 'uat', 'a person\'s deploy moves it on');
-  assert.throws(() => taskDeployRoute(c, inUat, 'dev'), /Dev isn't a next step for ACME-1: its change is in UAT, which goes on to Production/);
+  assert.throws(() => taskDeployRoute(c, inUat, 'dev'), /Dev isn't on ACME-1's path after UAT, where its change is: from there it can go to Production\. Pick one of those\./, 'the development environment is never a choice');
   const builderOnly = { ...t, deploys: [{ ...inUat.deploys[0]!, checkId: undefined }] };
   assert.equal(ticketPlace(c, builderOnly)!.at.branch, 'dev', 'edge case: a builder\'s own deploy to its org doesn\'t move it on');
   const inProd = { ...t, promotions: [{ from: 'uat', to: 'production', pr: { number: 1, url: 'u' }, state: 'merged' as const, mergeSha: 'b', mergedAt: '2026-10-28T11:00:00Z', at: '2026-10-28T11:00:00Z' }], deploys: inUat.deploys };
@@ -477,8 +482,56 @@ async function mutant(from: string, to: string): Promise<Mod> {
 }
 
 test('a mutant that deploys without the person\'s yes is caught', async () => {
-  const m = await mutant('if (why) throw new AccError(\'refused\', why);\n      if (!confirmsOrg', 'if (!confirmsOrg');
+  const m = await mutant('      if (why) throw new AccError(\'refused\', why);\n', '');
   assert.notDeepEqual(noDeployWithoutYes(m), [], 'the mutant deployed, and the check saw it');
+});
+
+/** A guide's deploy with a passed check and no pick is refused, and nothing deploys. Returns what's wrong, or nothing. */
+function noGuidedDeployWithoutPick(m: Mod): string[] {
+  const { origin, paths, c } = repo();
+  const calls: string[] = [];
+  const d = deps(origin, calls);
+  m.planTaskDeploy(paths, c, 'ACME-1', 'uat', d, { by });
+  const wrong: string[] = [];
+  try {
+    m.deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', guided: true });
+    wrong.push('the guide deployed without a pick');
+  } catch (e) {
+    if (!/No one picked where ACME-1 goes/.test((e as Error).message)) wrong.push(`it failed another way: ${(e as Error).message}`);
+  }
+  if (realDeploys(calls).length) wrong.push(`it ran ${realDeploys(calls).join('; ')}`);
+  if (calls.some((x) => x.startsWith('gh '))) wrong.push('it touched GitHub');
+  return wrong;
+}
+
+/** A guide's deploy to production on a fresh pick, with no name typed, is refused. Returns what's wrong, or nothing. */
+function noGuidedProductionWithoutName(m: Mod): string[] {
+  const { origin, paths, c } = repo();
+  const calls: string[] = [];
+  const d = deps(origin, calls, { prodUrl: true });
+  m.planTaskDeploy(paths, c, 'ACME-1', 'production', d, { by });
+  keepPick(paths, 'ACME-1', 'production', by, now);
+  const wrong: string[] = [];
+  try {
+    m.deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', guided: true });
+    wrong.push('the guide deployed to production on the pick alone');
+  } catch (e) {
+    if (!/hasn't typed a yes for ACME-1/.test((e as Error).message)) wrong.push(`it failed another way: ${(e as Error).message}`);
+  }
+  if (realDeploys(calls).length) wrong.push(`it ran ${realDeploys(calls).join('; ')}`);
+  return wrong;
+}
+
+test('a mutant that lets the guide deploy without the person\'s pick is caught (T-156)', async () => {
+  assert.deepEqual(noGuidedDeployWithoutPick(real), []);
+  const m = await mutant('if (opts.guided) { takeGuidedYes(paths, id, plan, kept, now, (branch) => environmentByBranch(config, branch)?.name ?? branch); return; }', 'if (opts.guided) return;');
+  assert.notDeepEqual(noGuidedDeployWithoutPick(m), [], 'the mutant deployed, and the check saw it');
+});
+
+test('a mutant that deploys to production on the pick alone, without the typed name, is caught (T-156)', async () => {
+  assert.deepEqual(noGuidedProductionWithoutName(real), []);
+  const m = await mutant('confirm: production || to.protected, confirmName: to.name, sandbox: shown.kind === \'sandbox\'', 'confirm: false, confirmName: to.name, sandbox: true');
+  assert.notDeepEqual(noGuidedProductionWithoutName(m), [], 'the mutant deployed, and the check saw it');
 });
 
 test('a mutant that deploys another ticket\'s component is caught', async () => {
@@ -486,25 +539,44 @@ test('a mutant that deploys another ticket\'s component is caught', async () => 
   assert.notDeepEqual(onlyItsComponents(m), [], 'the mutant sent ACME-2\'s Other.cls, and the check saw it');
 });
 
-test('a deploy guide\'s yes is the destination\'s name, even for a sandbox: a yes said to the runbook never counts (T-154)', () => {
+test('a deploy guide deploys to the sandbox the person picked on that pick alone, used once, and nowhere else (T-154, T-156)', () => {
   const { origin, paths, c } = repo();
   const calls: string[] = [];
   const d = deps(origin, calls);
   planTaskDeploy(paths, c, 'ACME-1', 'uat', d, { by });
-  assert.throws(() => deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', confirm: 'yes', guided: true }), /The person typed "yes", not UAT\. Ask them to type UAT in the chat/);
-  assert.throws(() => deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', guided: true }), /typed "", not UAT/, 'edge case: nothing typed');
+  assert.throws(() => deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', confirm: 'UAT', guided: true }), /No one picked where ACME-1 goes/, 'what the guide passes as the name is never the yes');
+  keepPick(paths, 'ACME-1', 'production', by, now);
+  keepTypedYes(paths, 'ACME-1', 'UAT', null, now);
+  assert.throws(() => deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', guided: true }), /The person picked Production for ACME-1, not UAT\. The deploy guide deploys only where the person picked/, 'security review: an environment the person didn\'t pick, even with its name typed');
   assert.deepEqual(realDeploys(calls), []);
-  assert.equal(deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', confirm: 'Acme UAT', guided: true }).deployed, true, 'its org\'s alias does too');
+  keepPick(paths, 'ACME-1', 'uat', by, now);
+  const r = deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', guided: true });
+  assert.equal(r.deployed, true, 'the pick is the yes: no name typed');
+  assert.equal(realDeploys(calls).length, 1);
+  assert.ok(readPick(paths, 'ACME-1')!.used, 'used once');
+  assert.equal(taskIn(paths, 'ACME-1').deploys!.at(-1)!.by, by);
 });
 
-test('a deploy guide\'s yes for production is its name, as at the terminal', () => {
+test('a deploy guide\'s yes for production, or a protected org, is the name the person typed: the pick alone deploys nothing there', () => {
   const { origin, paths, c } = repo();
   const calls: string[] = [];
   const d = deps(origin, calls, { prodUrl: true });
   planTaskDeploy(paths, c, 'ACME-1', 'production', d, { by });
-  assert.throws(() => deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', confirm: 'yes', guided: true }), /Type its name, Production/, 'yes is not the name');
+  keepPick(paths, 'ACME-1', 'production', by, now);
+  assert.throws(() => deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', guided: true }), /The person hasn't typed a yes for ACME-1 in this chat/, 'a fresh pick is no yes for production');
+  keepTypedYes(paths, 'ACME-1', 'yes', null, now);
+  assert.throws(() => deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', guided: true }), /The person typed "yes", not Production\. Ask them to type Production in the chat/, 'yes is not the name');
   assert.deepEqual(realDeploys(calls), []);
-  assert.equal(deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', confirm: 'Production', guided: true }).deployed, true);
+  keepTypedYes(paths, 'ACME-1', 'Production', null, now);
+  assert.equal(deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', guided: true }).deployed, true);
+  assert.equal(typeof readPick(paths, 'ACME-1')!.used, 'string', 'the pick fixed where, and is used up with the deploy');
+  // A protected sandbox, by the settings: the same.
+  const guarded = repo();
+  const gc = config({ environments: [{ name: 'Production', type: 'production', org: 'Acme Production' }, { name: 'UAT', type: 'full', org: 'Acme UAT', protected: true, promotesTo: ['production'] }, { name: 'Dev', type: 'developer', org: 'Acme Dev', default: true, promotesTo: ['uat', 'production'] }] });
+  const gd = deps(guarded.origin, []);
+  planTaskDeploy(guarded.paths, gc, 'ACME-1', 'uat', gd, { by });
+  keepPick(guarded.paths, 'ACME-1', 'uat', by, now);
+  assert.throws(() => deployTask(guarded.paths, gc, 'ACME-1', 'uat', gd, { by, checkId: '0AfCHECK', guided: true }), /hasn't typed a yes/, 'edge case: a protected sandbox keeps the typed yes');
 });
 
 test('Deploy with an agent opens the guide\'s chat in the main checkout, as the deployer of its ticket, for where it goes next (T-154)', () => {

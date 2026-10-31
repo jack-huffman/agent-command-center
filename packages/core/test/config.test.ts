@@ -554,7 +554,7 @@ const EVERY_KEY = {
   },
   autonomy: 'review',
   worktrees: { root: '.claude/worktrees', setup: ['npm ci'] },
-  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], tests: ['check'], nearIndexes: ['web/main.ts'],
+  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], tests: ['check'], nearIndexes: ['web/main.ts'], apexCoverage: 90,
     ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } },
   secretScan: { paths: ['.'], exclude: ['fixtures'] },
   // A generic project's data folders are ignored, with a warning when it names any.

@@ -42,6 +42,22 @@ test('the packet tells a Salesforce builder where it is, how to finish, and what
   assert.ok(withPath.includes('its full path is `/opt/acc/bin/acc`'));
 });
 
+test('a Salesforce builder\'s packet says to verify and test in the org, reach the coverage floor, aim for 100% and prove the plan; a raised floor is the one it says, and a generic packet says none of it', () => {
+  const config = parseConfig(JSON.parse(JSON.stringify(SF_CONFIG))).config!;
+  const l = emptyLedger();
+  upsertTasks(l, config, [{ source: { kind: 'manual', key: 'T-1' }, title: 'Add a rule' }], 'human', 'h', () => {}, () => new Date());
+  const packet = (c: typeof config) => renderPacket({ task: l.tasks[0]!, config: c, env: c.environments.find((e) => e.branch === 'dev')!, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [] });
+  const p = packet(config);
+  for (const must of ['in the org, verified there and tested there', 'must reach at least 75% coverage in the org', 'names each one with its figure and the lines not covered', 'Aim for 100%', 'Test classes don\'t count', 'Say each class\'s figure in your note', 'check that the result in the org does what the plan says', 'For a flow or a page, a test or a query']) {
+    assert.ok(p.includes(must), must);
+  }
+  assert.ok(p.indexOf('**Prove it:**') < p.indexOf('## The finish line'), 'before acc done');
+  assert.ok(packet({ ...config, gates: { ...config.gates, apexCoverage: 90 } }).includes('at least 90% coverage'), 'the project\'s floor');
+  const generic = parseConfig(JSON.parse(JSON.stringify(GENERIC_CONFIG))).config!;
+  const g = renderPacket({ task: l.tasks[0]!, config: generic, env: generic.environments[0]!, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [] });
+  assert.ok(!g.includes('**Coverage:**') && !g.includes('**Prove it:**'), 'edge case: no Apex, no floor');
+});
+
 test('a rework autopilot sent back for failing checks tells its builder what GitHub said, and no review\'s changes (D-076)', () => {
   const config = parseConfig({ ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'npm test' } } }).config!;
   const l = emptyLedger();

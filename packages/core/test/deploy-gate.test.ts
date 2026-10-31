@@ -91,6 +91,10 @@ function fixture() {
   return { dir, c, paths, sha, passed };
 }
 
+/** ApexCodeCoverageAggregate's records as `sf data query --json` gives them: each class's name, lines covered and not, and which. */
+const aggregate = (rows: [string, number, number, number[]?][]) => ({ totalSize: rows.length, done: true, records: rows.map(([name, covered, uncovered, lines]) => (
+  { attributes: { type: 'ApexCodeCoverageAggregate' }, ApexClassOrTrigger: { attributes: { type: 'Name' }, Name: name }, NumLinesCovered: covered, NumLinesUncovered: uncovered, Coverage: { coveredLines: [], uncoveredLines: lines ?? [] } })) });
+
 /** A fake sf: which org, the deploy, the org's listings, and the test run, each recorded. `over` replaces any of them. */
 function fakeSf(calls: string[], over: Record<string, RunResult | (() => RunResult)> = {}) {
   return fakeRunner({
@@ -99,6 +103,7 @@ function fakeSf(calls: string[], over: Record<string, RunResult | (() => RunResu
     'nice -n 15 sf org list metadata --metadata-type ApexClass': sf([{ fullName: 'Account', type: 'ApexClass' }, { fullName: 'AccountTest', type: 'ApexClass' }]),
     'nice -n 15 sf org list metadata --metadata-type CustomField': sf([{ fullName: 'Account.Foo__c', type: 'CustomField' }]),
     'nice -n 15 sf apex run test': sf({ summary: { outcome: 'Passed', testsRan: 3, passing: 3, failing: 0, skipped: 0, testRunCoverage: '91%', testRunId: '707x1' }, tests: [] }),
+    'nice -n 15 sf data query --use-tooling-api': sf(aggregate([['Account', 10, 0]])),
     ...over,
   }, calls);
 }
@@ -116,7 +121,7 @@ test('the deploy gate asks which org, deploys the changed source with the named 
   const calls: string[] = [];
   const r = deployRun(f, fakeSf(calls));
   assert.equal(r.status, 'pass', r.summary);
-  assert.match(r.summary, /^Deployed 2 components to Acme Dev \(job 0Af1\): 2 listed in the org; 3 tests passed in the org, 91% coverage\.$/);
+  assert.match(r.summary, /^Deployed 2 components to Acme Dev \(job 0Af1\): 2 listed in the org; 3 tests passed in the org, 91% coverage; Account 100%\.$/);
   // Which org, first: Salesforce says, before anything goes.
   assert.equal(sfCalls(calls)[0], 'nice -n 15 sf org display --target-org Acme Dev --json');
   // The deploy: a real one, of the changed paths, at the test level the change needs.
@@ -130,6 +135,9 @@ test('the deploy gate asks which org, deploys the changed source with the named 
   ]);
   // The tests, in the org, with coverage.
   assert.deepEqual(calls.filter((l) => l.includes('apex run test')), ['nice -n 15 sf apex run test --target-org Acme Dev --class-names AccountTest --result-format json --code-coverage --wait 60 --json']);
+  // Then the changed class's coverage, from the org, after the run: the test class AccountTest isn't asked for.
+  assert.deepEqual(calls.filter((l) => l.includes('data query')), ['nice -n 15 sf data query --use-tooling-api --target-org Acme Dev --json --query SELECT ApexClassOrTrigger.Name, NumLinesCovered, NumLinesUncovered, Coverage FROM ApexCodeCoverageAggregate WHERE ApexClassOrTrigger.Name IN (\'Account\')']);
+  assert.ok(calls.findIndex((l) => l.includes('data query')) > calls.findIndex((l) => l.includes('apex run test')), 'after the run');
   // The receipt: which org (its username), what was deployed, the job, the tests and their result, with every command in its log.
   const receipt = readReceipt(f.paths, f.sha, DEPLOY_GATE)!;
   assert.equal(receipt.status, 'pass');
@@ -137,7 +145,7 @@ test('the deploy gate asks which org, deploys the changed source with the named 
   assert.deepEqual(receipt.details!.components, ['Apex Class: Account', 'Custom Field: Account.Foo__c']);
   assert.deepEqual([receipt.details!.verified, receipt.details!.missing, receipt.details!.unchecked], [2, [], []]);
   assert.deepEqual(receipt.details!.tests, TESTS);
-  assert.deepEqual(receipt.details!.testRun, { id: '707x1', names: ['AccountTest'], outcome: 'pass', ran: 3, failed: 0, coverage: '91%', failures: [] });
+  assert.deepEqual(receipt.details!.testRun, { id: '707x1', names: ['AccountTest'], outcome: 'pass', ran: 3, failed: 0, coverage: '91%', classes: [{ name: 'Account', covered: 10, uncovered: 0, lines: [] }], floor: 75, failures: [] });
   assert.deepEqual(receipt.counts, { run: 3, passed: 3, failed: 0, skipped: 0, todo: 0, runner: 'apex' });
   assert.equal(receipt.elsewhere, undefined, 'the task\'s own deploy');
   assert.match(receipt.command!, /^sf org display --target-org 'Acme Dev'/);
@@ -148,7 +156,7 @@ test('the deploy gate asks which org, deploys the changed source with the named 
   assert.equal(t.deploys!.length, 1);
   const d = t.deploys![0]!;
   assert.deepEqual([d.env, d.org, d.username, d.sha, d.at, d.jobId, d.paths, d.verified], ['dev', 'Acme Dev', 'dev@acme.com.dev', f.sha, now().toISOString(), '0Af1', [CLASS, FIELD], 2]);
-  assert.deepEqual(d.tests, { names: ['AccountTest'], outcome: 'pass', ran: 3, failed: 0, coverage: '91%' });
+  assert.deepEqual(d.tests, { names: ['AccountTest'], outcome: 'pass', ran: 3, failed: 0, coverage: '91%', classes: [{ name: 'Account', covered: 10, uncovered: 0, lines: [] }], floor: 75 });
   assert.deepEqual(latestDeploys(t.deploys).map((x) => x.org), ['Acme Dev']);
 });
 
@@ -209,6 +217,91 @@ test('tests that fail in the org fail the gate and name them; a run of no tests 
   assert.equal(gone.status, 'error');
   assert.match(gone.summary, /Deployed to Acme Dev \(job 0Af1\), but the test run gave no result: timed out/);
   assert.equal(ledgerTask(f.paths).deploys!.length, 3, 'each deploy that reached the org is recorded');
+});
+
+// ---------------------------------------------------------------- coverage for each changed class (T-159)
+
+const COVERAGE_QUERY = 'nice -n 15 sf data query --use-tooling-api';
+
+test('a changed class under the 75% floor fails the gate, named with its figure and the lines not covered; one at 75% passes; 74.9% is under it', () => {
+  const f = fixture();
+  // The mutant: 74 lines of 100 covered. It must fail, and say so.
+  const short = deployRun(f, fakeSf([], { [COVERAGE_QUERY]: sf(aggregate([['Account', 74, 26, [3, 9, 12]]])) }));
+  assert.equal(short.status, 'fail', short.summary);
+  assert.match(short.summary, /^Deployed 2 components to Acme Dev \(job 0Af1\) and the tests passed, but a changed class is under the 75% coverage floor: Account 74%, 26 lines not covered \(lines 3, 9, 12\)\. Add tests that cover those lines, name them with --test, and run acc gate run deploy again\.$/);
+  assert.deepEqual(short.counts, { run: 3, passed: 3, failed: 0, skipped: 0, todo: 0, runner: 'apex' }, 'the run\'s counts ride on the failure');
+  assert.deepEqual(ledgerTask(f.paths).deploys![0]!.tests!.classes, [{ name: 'Account', covered: 74, uncovered: 26, lines: [3, 9, 12] }], 'the task keeps the figure');
+  // At the floor exactly: it passes, and the figure is said with the lines still to cover.
+  const at = deployRun(f, fakeSf([], { [COVERAGE_QUERY]: sf(aggregate([['Account', 75, 25]])) }));
+  assert.equal(at.status, 'pass', at.summary);
+  assert.match(at.summary, /3 tests passed in the org, 91% coverage; Account 75%, 25 lines not covered\.$/);
+  // 749 of 1000 rounds to 75 but is under it: the share decides, and the figure reads 74%.
+  const under = deployRun(f, fakeSf([], { [COVERAGE_QUERY]: sf(aggregate([['Account', 749, 251]])) }));
+  assert.equal(under.status, 'fail');
+  assert.match(under.summary, /Account 74%, 251 lines not covered\./);
+});
+
+test('a class at or over the floor and under 100% passes, and the receipt and the ticket say its figure; a trigger counts; a test class doesn\'t', () => {
+  const f = fixture();
+  const ORDER = 'force-app/main/default/classes/OrderService.cls';
+  const TRIGGER = 'force-app/main/default/triggers/OrderTrigger.trigger';
+  write(f.dir, ORDER, 'public with sharing class OrderService { }\n');
+  write(f.dir, TRIGGER, 'trigger OrderTrigger on Order (before insert) { }\n');
+  // A test class the builder didn't name still doesn't count: its source says @isTest.
+  write(f.dir, 'force-app/main/default/classes/OrderHelperTest.cls', '/** helps */\n@IsTest(SeeAllData=false)\nprivate class OrderHelperTest { }\n');
+  // Nor does an interface, which has no line to cover.
+  write(f.dir, 'force-app/main/default/classes/Pricing.cls', 'public interface Pricing { Decimal price(); }\n');
+  commitAll(f.dir, 'order service');
+  f.passed('validate');
+  const calls: string[] = [];
+  const listed = sf(['Account', 'OrderService', 'OrderHelperTest', 'Pricing'].map((fullName) => ({ fullName, type: 'ApexClass' })));
+  const r = deployRun(f, fakeSf(calls, {
+    'nice -n 15 sf org list metadata --metadata-type ApexClass': listed,
+    'nice -n 15 sf org list metadata --metadata-type ApexTrigger': sf([{ fullName: 'OrderTrigger', type: 'ApexTrigger' }]),
+    [COVERAGE_QUERY]: sf(aggregate([['OrderService', 44, 6, [5, 6, 7, 8, 20, 21]], ['Account', 10, 0], ['OrderTrigger', 4, 0]])),
+  }));
+  assert.equal(r.status, 'pass', r.summary);
+  assert.match(r.summary, /; 3 tests passed in the org, 91% coverage; Account 100%; OrderService 88%, 6 lines not covered; OrderTrigger 100%\.$/);
+  assert.match(calls.find((l) => l.startsWith(COVERAGE_QUERY))!, /IN \('Account', 'OrderService', 'OrderTrigger'\)$/, 'never the test class, the named one, or the interface');
+  const d = ledgerTask(f.paths).deploys![0]!;
+  assert.deepEqual(d.tests!.classes!.map((c) => c.name), ['Account', 'OrderService', 'OrderTrigger']);
+  assert.equal(d.tests!.floor, 75);
+  assert.equal(testsWords(d.tests), '3 tests passed in the org, 91% coverage; Account 100%; OrderService 88%, 6 lines not covered; OrderTrigger 100%', 'the ticket\'s Changes say it');
+});
+
+test('edge case: a changed class no test ran is 0% and fails; a coverage query with no answer is an error; failed tests ask the org for no coverage', () => {
+  const f = fixture();
+  const unran = deployRun(f, fakeSf([], { [COVERAGE_QUERY]: sf(aggregate([])) }));
+  assert.equal(unran.status, 'fail');
+  assert.match(unran.summary, /under the 75% coverage floor: Account 0%, no test ran it\./);
+  const gone = deployRun(f, fakeSf([], { [COVERAGE_QUERY]: { code: 1, stdout: '', stderr: 'INVALID_FIELD' } }));
+  assert.equal(gone.status, 'error');
+  assert.match(gone.summary, /^Deployed to Acme Dev \(job 0Af1\) and the tests passed, but the org gave no coverage for Account: INVALID_FIELD\.$/);
+  assert.equal(ledgerTask(f.paths).deploys!.at(-1)!.tests!.outcome, 'pass', 'the deploy and its run are still recorded');
+  const calls: string[] = [];
+  const failing = sf({ summary: { outcome: 'Failed', testsRan: 1, passing: 0, failing: 1 }, tests: [{ ApexClass: { Name: 'AccountTest' }, MethodName: 'works', Outcome: 'Fail', Message: 'boom' }] });
+  assert.equal(deployRun(f, fakeSf(calls, { 'nice -n 15 sf apex run test': failing })).status, 'fail');
+  assert.ok(!calls.some((l) => l.startsWith(COVERAGE_QUERY)), 'the tests failed: that is the failure to fix first');
+});
+
+test('the project\'s settings raise the floor, never the worktree\'s copy, and acc refuses a floor under 75', () => {
+  const f = fixture();
+  // dev's committed settings raise the floor to 90; the worktree's copy says nothing, so 75.
+  gitIn(f.dir, 'checkout', '-q', 'dev');
+  write(f.dir, '.acc/config.json', JSON.stringify({ ...RAW, gates: { apexCoverage: 90 } }));
+  commitAll(f.dir, 'raise the floor');
+  gitIn(f.dir, 'checkout', '-q', 'task/T-1-thing');
+  assert.equal(f.c.gates.apexCoverage, undefined);
+  const r = deployRun(f, fakeSf([], { [COVERAGE_QUERY]: sf(aggregate([['Account', 88, 12]])) }));
+  assert.equal(r.status, 'fail', r.summary);
+  assert.match(r.summary, /under the 90% coverage floor: Account 88%, 12 lines not covered\./);
+  assert.equal(ledgerTask(f.paths).deploys![0]!.tests!.floor, 90);
+  assert.equal(deployRun(f, fakeSf([], { [COVERAGE_QUERY]: sf(aggregate([['Account', 90, 10]])) })).status, 'pass');
+  // A floor under Salesforce's own, or over 100, or not whole, is refused.
+  for (const bad of [74, 0, 101, 80.5, '90']) {
+    assert.match(parseConfig({ ...RAW, gates: { apexCoverage: bad } }).errors.join('\n'), /"gates\.apexCoverage" must be a whole number from 75 to 100.*75 is Salesforce's own floor for Production, so it can't be lower\./, String(bad));
+  }
+  assert.equal(config({ ...RAW, gates: { apexCoverage: 100 } }).gates.apexCoverage, 100);
 });
 
 // ---------------------------------------------------------------- never where it mustn't
@@ -855,4 +948,21 @@ test('edge case: a builder deploys only to its own task\'s environment, never on
   assert.equal(deployEnvProblem(task, { name: 'Dev', branch: 'dev' }), null, 'its own environment');
   assert.match(deployEnvProblem(task, { name: 'UAT', branch: 'uat' }) ?? '', /ACME-7 builds on dev, so it deploys only to that environment's org, never to UAT\. Nothing was deployed\./);
   assert.equal(deployEnvProblem(null, { name: 'UAT', branch: 'uat' }), null, 'no task: not a builder\'s own run, which skips anyway');
+});
+
+test('edge case: when the org refuses Coverage on several rows, the gate asks for one class at a time', () => {
+  const f = fixture();
+  write(f.dir, 'force-app/main/default/classes/OrderService.cls', 'public with sharing class OrderService { }\n');
+  commitAll(f.dir, 'order service');
+  f.passed('validate');
+  const calls: string[] = [];
+  let asked = 0;
+  const rows = sf(aggregate([['Account', 10, 0], ['OrderService', 44, 6]]));
+  const r = deployRun(f, fakeSf(calls, {
+    'nice -n 15 sf org list metadata --metadata-type ApexClass': sf(['Account', 'OrderService'].map((fullName) => ({ fullName, type: 'ApexClass' }))),
+    [COVERAGE_QUERY]: () => (asked++ === 0 ? { code: 1, stdout: '', stderr: 'MALFORMED_QUERY' } : rows),
+  }));
+  assert.equal(r.status, 'pass', r.summary);
+  assert.deepEqual(calls.filter((l) => l.startsWith(COVERAGE_QUERY)).map((l) => l.replace(/^.* IN /, '')), ["('Account', 'OrderService')", "('Account')", "('OrderService')"]);
+  assert.match(r.summary, /Account 100%; OrderService 88%, 6 lines not covered\.$/);
 });

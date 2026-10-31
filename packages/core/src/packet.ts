@@ -1,6 +1,7 @@
 // The builder's packet and its session's settings: what acc writes into a task's worktree when it dispatches it.
 
 import { delimiter } from 'node:path';
+import { coverageFloor } from './apex-coverage.ts';
 import { autoMergeFor, builderGatesFor, type Config, type Environment, fullGates, requiredGates } from './config.ts';
 import { HAND_DEPLOY_DENIES } from './deploy-commands.ts';
 import { NOTE_RULE } from './agent-notes.ts';
@@ -208,9 +209,11 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean; cloud?:
   );
   if (sf) {
     lines.push(
-      '- **Salesforce:** validate, then deploy, through acc only. `acc gate run validate` proves a change with a check-only deploy to the org; nothing is saved. `acc gate run deploy` then deploys your change to the build org, checks each component is there, and runs the tests you named in the org: your work isn\'t done until it\'s in the org. Say in your note what\'s in the org and what the tests found.',
+      '- **Salesforce:** validate, then deploy, through acc only. `acc gate run validate` proves a change with a check-only deploy to the org; nothing is saved. `acc gate run deploy` then deploys your change to the build org, checks each component is there, and runs the tests you named in the org: your work isn\'t done until it\'s in the org, verified there and tested there. Say in your note what\'s in the org and what the tests found.',
       '- **Taking turns:** deploys to one org go one at a time, and if another task in flight changes a file you changed, deploy stops and names the task and file. Don\'t deploy over its work: run `acc block "Waiting to deploy: <which task and file>"` and stop; once that task merges or is set aside, the deploy goes. Where it goes comes from the project\'s settings, never your worktree\'s copy: don\'t edit anything under `.acc/`.',
       '- **Tests:** if you change Apex, name the test classes that cover it and why each is the right one: `acc gate run validate --test <TestClass>="<why>"`, once per class. The deploy runs the same tests in the org.',
+      `- **Coverage:** each Apex class and trigger you add or change must reach at least ${coverageFloor(config)}% coverage in the org, or deploy fails and names each one with its figure and the lines not covered. Aim for 100%. Test classes don't count. Say each class's figure in your note, for example "OrderService 88%, 4 lines not covered".`,
+      '- **Prove it:** before `acc done`, check that the result in the org does what the plan says. For Apex, a test that asserts it. For a flow or a page, a test or a query (`sf data query`) that proves it. Say in your note what proved it.',
       // A step by hand in the development org before the deploy holds it (T-157): the builder asks, and deploys only once a person says it's done.
       '- **A step by hand first:** if your change needs something done in the development org by hand before it can deploy (data to load, a setting metadata can\'t carry, a feature to turn on), don\'t deploy. Run `acc block "Needs a step by hand in the org before the deploy: <what>"` with one `--item` per step, and stop. Deploy only when the person says it\'s done. Once your work is done and reviewed, it merges into the development environment on its own; a deploy past that org is always a person\'s pick.',
     );

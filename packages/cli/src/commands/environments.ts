@@ -1,7 +1,7 @@
 // acc's Environments commands: promote and deploy.
 
 import { createInterface } from 'node:readline/promises';
-import { AccError, deploy, deployerTask, deployGuideLaunch, deployTask, lastDeploy, planDeploy, planPromotion, planTaskDeploy, promote, readKeptCheck, run, skipWarning, takeTypedYes, type TaskDeployPlan } from '../../../core/src/index.ts';
+import { AccError, deploy, DEPLOY_TO_VAR, deployerTask, deployGuideLaunch, deployTask, keepPick, lastDeploy, planDeploy, planPromotion, planTaskDeploy, promote, run, skipWarning, type TaskDeployPlan } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
 import { accCommand, type CommandArea, now, type Opts, out, personOnly, personOrGuide, project, steps } from '../shared.ts';
 
@@ -102,8 +102,9 @@ async function cmdDeployTask(o: Opts, envName: string | undefined): Promise<numb
   const by = personOrGuide(o, 'deploy a ticket', id);
   if (guided && o['confirm-name'] !== undefined) throw new AccError('refused', 'The deploy guide never types the org\'s name: the person types it in the chat, and acc deploy reads it from there.');
   const { paths, config } = project(process.cwd());
+  // The guide's yes is the person's pick of this environment, or for production and a protected org the name they type (T-156).
   const yesLine = (p: TaskDeployPlan) => guided
-    ? `To deploy it, ask the person to type ${p.confirmName} in the chat, then run: acc deploy ${p.to.branch} --task ${id} --yes ${p.check!.id}`
+    ? `To deploy it, ${p.confirm ? `ask the person to type ${p.confirmName} in the chat, then ` : 'once every step before it is done, '}run: acc deploy ${p.to.branch} --task ${id} --yes ${p.check!.id}${p.confirm ? '' : '. The person\'s pick of it is the yes'}`
     : `To deploy it: acc deploy ${p.to.branch} --task ${id} --yes ${p.check!.id}${p.confirm ? ` --confirm-production ${p.confirmName}` : ''}`;
   const deps = { run, now, env: process.env, steps: steps(), onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another deploy to this org to finish…\n', 'dim')); } };
   const noTests = o['no-tests'] === true;
@@ -126,8 +127,7 @@ async function cmdDeployTask(o: Opts, envName: string | undefined): Promise<numb
     if (p.confirm) typed = yes;
     envName = p.to.branch;
   }
-  // The guide's yes is the person's latest message in its chat, used once, and newer than the check.
-  if (guided) typed = takeTypedYes(paths, id, readKeptCheck(paths, id), now);
+  // The guide's yes is read by the deploy itself, from what acc kept of the person: their pick, or what they typed (T-156).
   const r = deployTask(paths, config, id, envName, deps, { noTests, by, checkId, confirm: typed, guided });
   out(o, () => [
     r.deployed ? tone(`✓ ${r.summary}`, 'blue') : r.summary,
@@ -140,13 +140,19 @@ async function cmdDeployTask(o: Opts, envName: string | undefined): Promise<numb
   return r.deployed || !r.plan.files.length ? 0 : 1;
 }
 
-/** acc deploy --task <id> --guide: how to open the deploy guide's chat in Claude Code, for a person (T-154). */
+/**
+ * acc deploy [<env>] --task <id> --guide: how to open the deploy guide's chat in Claude Code, for a person
+ * (T-154). The environment is the person's pick of where the ticket goes, any on its path after where it is
+ * (T-156): acc keeps the pick, and the guide deploys there on it, or on the name the person types for
+ * production or a protected org.
+ */
 function cmdDeployGuide(o: Opts, id: string, envName: string | undefined): number {
-  personOnly(o, 'open a deploy guide');
+  const by = personOnly(o, 'open a deploy guide');
   const { paths, config } = project(process.cwd());
   const launch = deployGuideLaunch(paths, config, id, envName, undefined, accCommand());
+  const pick = keepPick(paths, id, launch.env[DEPLOY_TO_VAR]!, by, now);
   const env = Object.entries(launch.env).map(([k, v]) => `${k}=${v}`).join(' ');
-  out(o, () => `Run this in ${launch.cwd}, with ${env}:\nclaude ${launch.args.map((a) => JSON.stringify(a)).join(' ')}`, launch);
+  out(o, () => `You picked ${pick.env} for ${id}. Run this in ${launch.cwd}, with ${env}:\nclaude ${launch.args.map((a) => JSON.stringify(a)).join(' ')}`, { ...launch, pick });
   return 0;
 }
 
@@ -179,11 +185,14 @@ export const area: CommandArea = {
   acc deploy <env> [--plan] [--since <commit>] [--confirm-production] [--no-tests]
                                         Deploy what changed on <env>'s branch since its last deploy to its org
   acc deploy [<env>] --task <id> [--plan] [--yes <check-id>] [--confirm-production <name>] [--no-tests]
-                                        Deploy one ticket to its next environment: a check first, then your
-                                        yes; its commits reach <env>'s branch by a pull request acc merges
+                                        Deploy one ticket to an environment on its path after where it is
+                                        (its next step when left out): a check first, then your yes; its
+                                        commits reach <env>'s branch by a pull request acc merges
   acc deploy [<env>] --task <id> --guide
-                                        How to open a deploy guide in Claude Code: an agent that gathers every
-                                        step into a runbook and works through it with you. You type the yes`,
+                                        Pick where the ticket goes and open its deploy guide in Claude Code:
+                                        an agent that gathers every step into a runbook and works through it
+                                        with you. Your pick is the yes for a sandbox; for production or a
+                                        protected org you type its name in the chat`,
   },
   options: {
     to: { type: 'string' },

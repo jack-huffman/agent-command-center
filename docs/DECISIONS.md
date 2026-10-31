@@ -244,3 +244,6 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-234](decisions/D-234-install-and-reload-updates-the-plugin.md) | Install and reload updates the Claude Code plugin too | 2026-10-30 |
 | [D-235](decisions/D-235-deploy-with-an-agent.md) | Deploy with an agent: a guide gathers every step into a runbook, and deploys on the yes the person types | 2026-10-30 |
 | [D-236](decisions/D-236-setup-is-a-guided-walkthrough.md) | Setup is a guided walkthrough: one thing on each screen, in chapters | 2026-10-30 |
+| [D-237](decisions/D-237-where-a-tickets-work-is.md) | A ticket knows where its work is, read from git and from each org | 2026-10-30 |
+| [D-238](decisions/D-238-coverage-floor-for-changed-apex.md) | A builder isn't done until each Apex class it changes reaches the coverage floor in the development org | 2026-10-30 |
+| [D-239](decisions/D-239-every-deploy-past-the-development-org-is-an-agent-s.md) | Every deploy past the development org is an agent's, to the org the person picks | 2026-10-30 |
