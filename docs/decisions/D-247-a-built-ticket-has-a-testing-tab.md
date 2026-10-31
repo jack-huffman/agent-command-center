@@ -1,4 +1,4 @@
-## D-T-161 A built ticket has a Testing tab: it opens the development org and gives the steps to test it (2026-10-30)
+## D-247 A built ticket has a Testing tab: it opens the development org and gives the steps to test it (2026-10-30)
 
 T-161. The person wrote: "If I have an agent building a ticket, I would expect to come back to it when the build is
 done, and be able to log into that Salesforce org and test and see metadata in place." A Salesforce builder already
