@@ -523,7 +523,8 @@ export class TicketPanels implements vscode.Disposable {
    * and the merges its branch doesn't hold yet, as this clone last fetched them. Null when git can't say.
    */
   private team(p: Project, task: Task): Team | null {
-    if (!IN_FLIGHT_STATES.includes(task.state)) return null;
+    // A task out of flight has no team: its kept read goes too, so the map holds only tasks in flight.
+    if (!IN_FLIGHT_STATES.includes(task.state)) { this.teams.delete(`${p.root}#${task.id}`); return null; }
     const ledger = this.hub.ledger(p.root);
     if (!ledger) return null;
     // Read again only when a branch moved or a task in flight changed: a task many merges behind takes git seconds (T-162).
