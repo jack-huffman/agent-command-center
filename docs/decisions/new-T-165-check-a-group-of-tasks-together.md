@@ -48,18 +48,22 @@ fails, to find which task touched the files behind it.
 - **Kept on each task.** Every step is in `groupChecks` on each task it checked (at most 30 a task): checking,
   passed, failed, merged, sent back, left out, fails together, needs you, each in words such as "Checked with
   T-155, T-159 and T-160: passed" or "Sent back: its change fails extension/test/where.test.ts". A `checking`
-  step is replaced by its result.
+  step is replaced by its result. A run that throws after it, such as a held gate or a gate that can't run,
+  replaces each live `checking` step with needs you and the error, so no task stays checking.
 - **One at a time.** A lock beside the ledger (`groups/<env>.lock`) holds one group check for an environment
-  on this machine. A lock whose process has gone is broken; a live one never is.
+  on this machine. A lock whose process has gone is broken, and so is one held past a day
+  (`GROUP_LOCK_STALE_MS`), longer than any full check runs. The lock alone says a group is under way: acc and
+  the Board's button both read it (`groupRunning`), never a task's `checking` step.
 - **In the Command Center.** The Board's In review lane has Check together (n) for each environment its tasks
   go to, with n the tasks ready, off with the command's own reason. It asks the person first, then runs acc
-  in the output panel, where its steps show, and says what came of it. While a group runs, the lane shows
-  "Checking … together for <environment>: running the full check". Each card shows its latest step, and the
+  in the output panel, where its steps show, and says what came of it. While a group holds its lock, the lane shows
+  "Checking … together for <environment>: running the full check", or "Checking a group together for
+  <environment>" before a task is marked. Each card shows its latest step, and the
   task page's Agent panel lists every step under Details ("Checked together").
 - **Mac and Windows.** It runs through acc's runner and git alone: no shell of its own.
 - This amends D-096: the queue's "Not chosen: checking several pull requests together" is now a person's
   choice, outside the queue. It amends D-158: one check can now cover several tasks' merges.
 - Not built here: autopilot starting a group check on its own where the project lets it merge, and a group
   check through GitHub's own merge of each pull request.
-- Checked by `packages/core/test/group-check.test.ts` (24 tests, 7 with real git) and
-  `extension/test/group-check.test.ts` (7 tests) and `extension/test/group-check-page.test.ts` (3 tests).
+- Checked by `packages/core/test/group-check.test.ts` (28 tests, 9 with real git) and
+  `extension/test/group-check.test.ts` (10 tests) and `extension/test/group-check-page.test.ts` (3 tests).

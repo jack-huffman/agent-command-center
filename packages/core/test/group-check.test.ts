@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { readQueueReport } from '../src/checks.ts';
+import { queueSection, readQueueReport } from '../src/checks.ts';
 import { type Config, parseConfig } from '../src/config.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { failureOf, type GroupFailure, importsOf, LOG_LINES, matchFailure, reachOf, loggedPath, resolveImport } from '../src/group-blame.ts';
-import { checkedWords, checkTogether, GROUP_CHECK_COMMAND, GROUP_MIN, groupEnabled, groupEnvironment, groupLockDir, groupReady, groupRunning, groupSummary, halves, listWords, markTasks, MOVED_AGAIN, GROUP_MARKS, notReady, sentBackWords, settleGroup, type GroupCheckResult } from '../src/group-check.ts';
-import { groupSection } from '../src/group-report.ts';
+import { checkedWords, checkTogether, GROUP_CHECK_COMMAND, GROUP_MIN, groupEnabled, groupEnvironment, groupLockDir, groupReady, groupRunning, groupSummary, halves, markTasks, MOVED_AGAIN, GROUP_LOCK_STALE_MS, GROUP_MARKS, notReady, sentBackWords, settleGroup, settleLive, type GroupCheckResult } from '../src/group-check.ts';
+import { groupSection, shortSha, yourPr } from '../src/group-report.ts';
 import { AUTOPILOT_BY, GROUP_OUTCOMES, mutate, readLedger, reworkCause, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
@@ -163,8 +163,7 @@ test('the command has an id, its params, and an enabled rule that says why not',
   assert.match(why({ config: CONFIG, env: null, ready: 3, running: false }), /isn't in the project's settings/);
 });
 
-test('words: lists, a check, a send-back and the summary', () => {
-  assert.deepEqual([listWords([]), listWords(['T-1']), listWords(['T-1', 'T-2']), listWords(['T-1', 'T-2', 'T-3'])], ['', 'T-1', 'T-1 and T-2', 'T-1, T-2 and T-3']);
+test('words: a check, a send-back and the summary', () => {
   assert.equal(checkedWords('T-1', ['T-1', 'T-155', 'T-159', 'T-160'], true), 'Checked with T-155, T-159 and T-160: passed');
   assert.equal(checkedWords('T-1', ['T-1'], false, ['check']), 'Checked alone: failed (check)');
   assert.equal(sentBackWords({ failure: fail([], ['extension/test/where.test.ts']), files: [], alone: false }), 'Sent back: its change fails extension/test/where.test.ts');
@@ -356,6 +355,50 @@ test('the environment: the one asked for, else the named tasks\', and two enviro
   assert.equal(groupEnvironment(CONFIG, ledger, []).branch, 'main', 'the default when nothing says');
   assert.throws(() => groupEnvironment(CONFIG, ledger, ['T-1', 'T-2']), /one environment/);
   assert.throws(() => groupEnvironment(CONFIG, ledger, [], 'nowhere'), /isn't an environment/);
+});
+
+test('a held gate after the checking mark: the run throws, and each live checking mark becomes needs-you with the error', () => {
+  const s = setup();
+  s.task('T-1', { 'src/a.ts': 'export const a = 1;\n' });
+  s.task('T-2', { 'src/b.ts': 'export const b = 2;\n' });
+  const before = s.originMain();
+  // The full check ran no tests: a hold, which needs a person.
+  assert.throws(() => checkTogether(s.paths, s.config, [], deps(() => ok('# tests 0\n# pass 0\n# fail 0\n# skipped 0\n# todo 0')), who), /The full check needs a person: test: Ran no tests/);
+  for (const id of ['T-1', 'T-2']) {
+    const marks = get(s, id).groupChecks!;
+    assert.deepEqual(marks.map((m) => m.outcome), ['needs-you'], `${id}: its checking mark is replaced, not left live`);
+    assert.match(marks[0]!.words, /^The group check stopped: The full check needs a person: test: Ran no tests/);
+    assert.equal(get(s, id).state, 'review');
+  }
+  assert.equal(s.originMain(), before, 'nothing merged');
+  assert.equal(groupRunning(s.paths, 'main'), false, 'the lock is gone, so Check together is on again');
+  assert.equal(gitIn(s.dir, 'branch', '--list', 'acc/group/main'), '', 'the scratch branch is gone');
+});
+
+test('settleLive changes only a live checking mark of its own group, and an unreadable ledger is no second error', () => {
+  const s = setup();
+  s.task('T-1', { 'src/a.ts': 'a\n' });
+  s.task('T-2', { 'src/b.ts': 'b\n' });
+  markTasks(s.paths, now, who, 'g', 'main', [{ id: 'T-1', with: ['T-2'], outcome: 'checking', words: 'checking' }, { id: 'T-2', with: ['T-1'], outcome: 'passed', words: 'passed' }]);
+  const mark = (marks: Parameters<typeof markTasks>[5]) => markTasks(s.paths, now, who, 'g', 'main', marks);
+  settleLive(s.paths, ['T-1', 'T-2'], 'other-group', new Error('x'), mark);
+  assert.equal(get(s, 'T-1').groupChecks!.at(-1)!.outcome, 'checking', 'another group\'s run leaves it alone');
+  settleLive(s.paths, ['T-1', 'T-2'], 'g', new Error('git broke.'), mark);
+  assert.deepEqual(get(s, 'T-1').groupChecks!.map((m) => [m.outcome, m.words, m.with]), [['needs-you', 'The group check stopped: git broke', ['T-2']]]);
+  assert.equal(get(s, 'T-2').groupChecks!.at(-1)!.outcome, 'passed', 'a settled mark stays');
+  assert.doesNotThrow(() => settleLive({ ledger: join(tempDir('none-'), 'gone', 'ledger.json') }, ['T-1'], 'g', new Error('x'), () => { throw new Error('unwritable'); }));
+});
+
+test('the lock is broken only past GROUP_LOCK_STALE_MS, a day, while its owner lives', () => {
+  assert.equal(GROUP_LOCK_STALE_MS, 24 * 60 * 60_000);
+});
+
+test('shortSha and yourPr: seven characters, and no pull request says nothing of one', () => {
+  assert.equal(shortSha('abcdef1234'), 'abcdef1');
+  assert.equal(yourPr({ number: 12, url: 'u' }), 'Your change is pull request #12. ');
+  assert.equal(yourPr(null), '');
+  const q = queueSection({ v: 1, task: 'T-2', sha: 'abcdef1234', base: 'main', pr: null, kind: 'conflict', conflicts: ['a.ts'], checks: [], merge: null, at: NOW }).join('\n');
+  assert.doesNotMatch(q, /pull request|undefined/, 'the queue\'s section guards a null pull request as the group section does');
 });
 
 test('a live checking step is replaced by its result, and a task keeps at most GROUP_MARKS steps', () => {

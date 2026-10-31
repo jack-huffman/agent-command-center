@@ -20,14 +20,20 @@ export interface GroupFound {
   lines: string[];
 }
 
-const short = (sha: string): string => sha.slice(0, 7);
+/** A commit's first seven characters, as the group check's words and packets name it. */
+export const shortSha = (sha: string): string => sha.slice(0, 7);
+const short = shortSha;
+
+/** "Your change is pull request #12. ", or nothing for a task with no pull request, as a group's send-back may be. */
+export const yourPr = (pr: QueueReport['pr']): string => (pr ? `Your change is pull request #${pr.number}. ` : '');
+
 const code = (xs: string[]): string => xs.map((f) => `\`${f}\``).join(', ');
 const fence = (s: string): string => '`'.repeat(Math.max(3, ...[...s.matchAll(/`+/g)].map((m) => m[0].length + 1)));
 
 /** The packet's section for a group check's send-back. */
 export function groupSection(r: QueueReport, g: GroupFound): string[] {
   const base = `\`${r.base}\``;
-  const yours = r.pr ? `Your change is pull request #${r.pr.number}. ` : '';
+  const yours = yourPr(r.pr);
   const how = g.alone
     ? `It failed with your change alone merged into ${base}`
     : `It failed with ${g.with.join(', ')} merged in too, and the failure names files your change reaches`;

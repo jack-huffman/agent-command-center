@@ -29,9 +29,10 @@ import { fetchBranches } from './fetch.ts';
 import { draftChangesField } from './field-drafts.ts';
 import { type GateResult, runGates } from './gates.ts';
 import { failureOf, type GroupFailure, matchFailure, reachOf, type Suspect } from './group-blame.ts';
-import type { GroupFound } from './group-report.ts';
+import { type GroupFound, shortSha as short } from './group-report.ts';
 import { type Actor, applyMove, AUTOPILOT_BY, checkMove, type GroupMark, type GroupOutcome, type Ledger, mutate, noGateHooks, readLedger, SEND_BACKS, sendBacks, sentBackAt, type Task } from './ledger.ts';
 import { withLock } from './lock.ts';
+import { taskList } from './overlap.ts';
 import { mainCheckout, type RepoPaths, repoPaths } from './paths.ts';
 import { FLOORS_FILE } from './ratchets.ts';
 import { satisfies } from './receipts.ts';
@@ -50,13 +51,8 @@ export const MOVED_AGAIN = 3;
 /** How many steps a task keeps of its group checks. */
 export const GROUP_MARKS = 30;
 
-const short = (sha: string): string => sha.slice(0, 7);
-
-/** "T-1", "T-1 and T-2", "T-1, T-2 and T-3". */
-export function listWords(xs: string[]): string {
-  if (xs.length <= 1) return xs[0] ?? '';
-  return `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
-}
+/** How long a group check's lock holds before another run breaks it, though its owner lives: a day, past any full check. */
+export const GROUP_LOCK_STALE_MS = 24 * 60 * 60_000;
 
 // ---------------------------------------------------------------- who's ready, and the command
 
@@ -197,13 +193,13 @@ export function settleGroup(ids: string[], check: (ids: string[]) => GroupCheckR
 /** What a check's step says on each task it checked. */
 export function checkedWords(id: string, ids: string[], ok: boolean, failed: string[] = []): string {
   const others = ids.filter((x) => x !== id);
-  const who = others.length ? `Checked with ${listWords(others)}` : 'Checked alone';
+  const who = others.length ? `Checked with ${taskList(others)}` : 'Checked alone';
   return `${who}: ${ok ? 'passed' : `failed${failed.length ? ` (${failed.join(', ')})` : ''}`}`;
 }
 
 /** What a send-back says on its task: the failing tests, else the files the failure names that its change reaches. */
 export function sentBackWords(c: Pick<Culprit, 'failure' | 'files' | 'alone'>): string {
-  const what = c.failure.tests.length ? listWords(c.failure.tests) : c.files.length ? listWords(c.files) : listWords(c.failure.checks);
+  const what = c.failure.tests.length ? taskList(c.failure.tests) : c.files.length ? taskList(c.files) : taskList(c.failure.checks);
   return `Sent back: its change fails ${what}${c.alone ? ', checked alone' : ''}`;
 }
 
@@ -224,6 +220,19 @@ export function markTasks(paths: RepoPaths, now: () => Date, who: { actor: Actor
       emit({ type: 'task.updated', task: t.id, actor: who.actor, by: who.by, data: { groupCheck: mark } });
     }
   });
+}
+
+/** Replaces each task's live `checking` mark of `group` with a needs-you mark that gives the error the run threw. */
+export function settleLive(paths: Pick<RepoPaths, 'ledger'>, ids: string[], group: string, e: Error, mark: (marks: Parameters<typeof markTasks>[5]) => void): void {
+  try {
+    const live = readLedger(paths.ledger).tasks.flatMap((t) => {
+      const last = t.groupChecks?.at(-1);
+      return ids.includes(t.id) && last?.group === group && last.outcome === 'checking' ? [{ id: t.id, with: last.with }] : [];
+    });
+    mark(live.map((l) => ({ ...l, outcome: 'needs-you' as const, words: `The group check stopped: ${e.message.replace(/[.!?]\s*$/, '')}` })));
+  } catch {
+    // The ledger can't be read or written: the error the run threw still reaches the person.
+  }
 }
 
 // ---------------------------------------------------------------- the group check, with git
@@ -265,7 +274,7 @@ export function groupEnvironment(config: Config, ledger: Pick<Ledger, 'tasks'>, 
     return e;
   }
   const envs = [...new Set(ids.map((id) => ledger.tasks.find((t) => t.id === id)?.environment).filter((x): x is string => !!x))];
-  if (envs.length > 1) throw new AccError('usage', `Those tasks go to ${listWords(envs)}: a group goes to one environment. Name it with --env.`);
+  if (envs.length > 1) throw new AccError('usage', `Those tasks go to ${taskList(envs)}: a group goes to one environment. Name it with --env.`);
   const e = envs[0] ? environmentByBranch(config, envs[0]) : defaultEnvironment(config);
   if (!e) throw new AccError('usage', `${envs[0]} isn't an environment in the project's settings.`);
   return e;
@@ -295,8 +304,8 @@ export function checkTogether(paths: RepoPaths, config: Config, ids: string[], d
   if (!can.ok) throw new AccError('refused', can.why);
   mkdirSync(join(paths.stateDir, 'groups'), { recursive: true });
   try {
-    // A lock whose owner is gone is broken; a live one is never, however long its check takes.
-    return withLock(groupLockDir(paths, env.branch), () => runGroup(paths, config, env, members, deps, who), { timeoutMs: 200, staleMs: 24 * 60 * 60_000 });
+    // A lock whose owner is gone is broken. So is one held past a day, though its owner lives: longer than any full check runs.
+    return withLock(groupLockDir(paths, env.branch), () => runGroup(paths, config, env, members, deps, who), { timeoutMs: 200, staleMs: GROUP_LOCK_STALE_MS });
   } catch (e) {
     if ((e as AccError).code === 'lock-timeout') throw new AccError('refused', `A group check for ${env.name} is under way. Wait for it to end.`);
     throw e;
@@ -315,6 +324,7 @@ function runGroup(paths: RepoPaths, config: Config, env: Environment, all: Group
   const inWt = (...args: string[]) => run('git', args, { cwd: wt });
   const unattended = { ...deps.env, GIT_TERMINAL_PROMPT: '0' };
   const result: GroupResult = { group, env: env.branch, merged: [], at: null, leftOut: [], sentBack: [], together: [], needsYou: [], checks: 0, summary: '' };
+  let thrown: Error | null = null;
   const removeScratch = () => {
     if (existsSync(wt)) git('worktree', 'remove', '--force', wt);
     git('branch', '-D', scratch);
@@ -346,7 +356,7 @@ function runGroup(paths: RepoPaths, config: Config, env: Environment, all: Group
             if (!(e instanceof MergeConflict) || !record) throw e;
             const by = kept.find((k) => changed.get(k)!.some((f) => e.files.includes(f))) ?? null;
             result.leftOut.push({ id, files: e.files, with: by });
-            mark([{ id, with: kept, outcome: 'left-out', words: `Left out of the group check: it conflicts${by ? ` with ${by}` : ''} in ${listWords(e.files)}` }]);
+            mark([{ id, with: kept, outcome: 'left-out', words: `Left out of the group check: it conflicts${by ? ` with ${by}` : ''} in ${taskList(e.files)}` }]);
           }
         }
         // The decisions they add, numbered against the environment's branch, as the merge queue does (T-102).
@@ -370,13 +380,13 @@ function runGroup(paths: RepoPaths, config: Config, env: Environment, all: Group
       const check = (g: string[]): GroupCheckResult => {
         // A part of the group: merged again from the environment's branch, in the same order.
         if (g.join(' ') !== built) {
-          say(`Merging ${listWords(g)} again from ${env.branch}`);
+          say(`Merging ${taskList(g)} again from ${env.branch}`);
           inWt('reset', '--quiet', '--hard', base);
           mergeIn(g, false);
           built = g.join(' ');
         }
-        mark(g.map((id) => ({ id, with: g.filter((x) => x !== id), outcome: 'checking' as const, words: `Checking with ${listWords(g.filter((x) => x !== id)) || 'no other task'}: running the full check` })));
-        say(`Running the full check on ${listWords(g)}`);
+        mark(g.map((id) => ({ id, with: g.filter((x) => x !== id), outcome: 'checking' as const, words: `Checking with ${taskList(g.filter((x) => x !== id)) || 'no other task'}: running the full check` })));
+        say(`Running the full check on ${taskList(g)}`);
         result.checks++;
         let failed: GateResult[];
         try {
@@ -410,7 +420,7 @@ function runGroup(paths: RepoPaths, config: Config, env: Environment, all: Group
       }
       if (settled.together.length) {
         result.together = settled.together;
-        mark(settled.together.map((id) => ({ id, with: settled.together.filter((x) => x !== id), outcome: 'together' as const, words: `Passes alone, but fails with ${listWords(settled.together.filter((x) => x !== id))}: a person decides` })));
+        mark(settled.together.map((id) => ({ id, with: settled.together.filter((x) => x !== id), outcome: 'together' as const, words: `Passes alone, but fails with ${taskList(settled.together.filter((x) => x !== id))}: a person decides` })));
       }
       // Nothing that failed merges: only the group whose own check passed, on the commit that was checked.
       if (!settled.passed.length) break;
@@ -419,9 +429,9 @@ function runGroup(paths: RepoPaths, config: Config, env: Environment, all: Group
       // Floors the passing check raised, committed once on the group's branch.
       if (inWt('status', '--porcelain', '--', FLOORS_FILE).stdout.trim()) {
         inWt('add', '--', FLOORS_FILE);
-        merge('commit', '--quiet', '-m', `Raise the floors from the group check of ${listWords(settled.passed)}`);
+        merge('commit', '--quiet', '-m', `Raise the floors from the group check of ${taskList(settled.passed)}`);
       }
-      say(`Merging ${listWords(settled.passed)} into ${env.branch}`);
+      say(`Merging ${taskList(settled.passed)} into ${env.branch}`);
       // The environment's branch moved after the check: the group is merged and checked again on the new one.
       fetchBranches(run, paths.root, [env.branch], unattended);
       if (git('rev-parse', `refs/remotes/origin/${env.branch}`).stdout.trim() !== base) {
@@ -452,7 +462,13 @@ function runGroup(paths: RepoPaths, config: Config, env: Environment, all: Group
     if (!result.merged.length && !result.sentBack.length && !result.together.length && !result.needsYou.length && members.length) {
       throw new AccError('group', `${env.branch} kept moving while the group was checked: ${MOVED_AGAIN + 1} checks, and nothing merged. Try again.`);
     }
+  } catch (e) {
+    thrown = e as Error;
+    throw e;
   } finally {
+    // A run that throws after its checking mark, such as a held gate or one that can't run, leaves no task
+    // checking: each live mark becomes needs-you with the error, so the ticket says why it stopped.
+    if (thrown) settleLive(paths, all.map((m) => m.id), group, thrown, mark);
     removeScratch();
   }
   result.summary = groupSummary(result);
@@ -462,11 +478,11 @@ function runGroup(paths: RepoPaths, config: Config, env: Environment, all: Group
 /** One sentence on what a group check did. */
 export function groupSummary(r: Pick<GroupResult, 'env' | 'merged' | 'leftOut' | 'sentBack' | 'together' | 'needsYou' | 'checks'>): string {
   const parts = [
-    r.merged.length ? `${listWords(r.merged)} merged into ${r.env}` : `Nothing merged into ${r.env}`,
-    ...(r.sentBack.length ? [`${listWords(r.sentBack.map((s) => s.id))} went back to ${r.sentBack.length === 1 ? 'its builder' : 'their builders'}`] : []),
-    ...(r.leftOut.length ? [`${listWords(r.leftOut.map((s) => s.id))} conflicted and ${r.leftOut.length === 1 ? 'was' : 'were'} left out`] : []),
-    ...(r.together.length ? [`${listWords(r.together)} fail only together, and need you`] : []),
-    ...(r.needsYou.length ? [`${listWords(r.needsYou.map((s) => s.id))} need${r.needsYou.length === 1 ? 's' : ''} you`] : []),
+    r.merged.length ? `${taskList(r.merged)} merged into ${r.env}` : `Nothing merged into ${r.env}`,
+    ...(r.sentBack.length ? [`${taskList(r.sentBack.map((s) => s.id))} went back to ${r.sentBack.length === 1 ? 'its builder' : 'their builders'}`] : []),
+    ...(r.leftOut.length ? [`${taskList(r.leftOut.map((s) => s.id))} conflicted and ${r.leftOut.length === 1 ? 'was' : 'were'} left out`] : []),
+    ...(r.together.length ? [`${taskList(r.together)} fail only together, and need you`] : []),
+    ...(r.needsYou.length ? [`${taskList(r.needsYou.map((s) => s.id))} need${r.needsYou.length === 1 ? 's' : ''} you`] : []),
   ];
   return `${parts.join('; ')}. The full check ran ${r.checks === 1 ? 'once' : `${r.checks} times`}.`;
 }
@@ -524,7 +540,7 @@ function mergedDone(paths: RepoPaths, config: Config, members: GroupMember[], me
       const mergeSha = merges.get(id);
       if (t.pr) t.pr = { ...t.pr, state: 'merged', ...(mergeSha ? { mergeSha } : {}), syncedAt: at };
       keepChanges(t, changed.get(id) ?? null, at, emit, who);
-      const req = { to: 'done' as const, actor: who.actor, by: who.by, reason: `Checked together with ${listWords(ids.filter((x) => x !== id)) || 'no other task'}, and merged into ${env.branch}.` };
+      const req = { to: 'done' as const, actor: who.actor, by: who.by, reason: `Checked together with ${taskList(ids.filter((x) => x !== id)) || 'no other task'}, and merged into ${env.branch}.` };
       if (t.state !== 'review' || checkMove(l, config, t, req, noGateHooks).length) continue;
       applyMove(t, req, emit, now);
       if (t.pr && issueToClose(config, t)) t.pr.issue = { state: 'pending', at };

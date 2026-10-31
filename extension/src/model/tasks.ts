@@ -115,7 +115,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
             group: lastGroupLook(t), actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t), people: dispatcher(t.dispatchedBy),
           }));
         // Done keeps what's still to clean up; the cleaned-up ones go under its fold (T-147).
-        return { group, label: d.label, icon: d.icon, tone: d.tone, ...(group === 'done' ? splitDone(cards) : { cards }), ...(group === 'review' ? { together: togetherFor(p.root, p.config, rows) } : {}) };
+        return { group, label: d.label, icon: d.icon, tone: d.tone, ...(group === 'done' ? splitDone(cards) : { cards }), ...(group === 'review' ? { together: togetherFor(p.root, p.config, rows, (env) => hub.groupRunning?.(p.root, env) ?? false) } : {}) };
       });
       return { name: p.name, root: p.root, github: !!p.config.github, columns, total: rows.length, boards: boards(p.root).map((b) => trackerBoard(b, rows, p.root)), me: dispatcherKey(user) };
     }),

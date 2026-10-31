@@ -4,7 +4,8 @@
  * data, with no vscode import, so it's testable.
  */
 import type { Environment } from '../../../packages/core/src/config.ts';
-import { GROUP_CHECK_COMMAND, listWords } from '../../../packages/core/src/group-check.ts';
+import { GROUP_CHECK_COMMAND } from '../../../packages/core/src/group-check.ts';
+import { taskList } from '../../../packages/core/src/overlap.ts';
 import type { GroupMark, GroupOutcome } from '../../../packages/core/src/ledger.ts';
 import { inProcessWords } from '../logic/processes.ts';
 import type { TaskRow } from '../logic/shared.ts';
@@ -43,20 +44,25 @@ export const readyForGroup = (r: Pick<TaskRow, 'state' | 'review'>): boolean => 
 
 /**
  * Check together for each environment a task in review goes to: the count of tasks ready, and the command's
- * own enabled rule, so the button is off with the same reason acc would give. A group under way shows its step.
+ * own enabled rule, so the button is off with the same reason acc would give. Whether a group is under way comes
+ * from `running`, the group's lock as acc reads it, never from the tasks' marks: a run that died leaves no lock.
+ * While one runs, its step shows, naming the tasks whose latest mark is checking.
  */
-export function togetherFor(project: string, config: { environments: Environment[] }, rows: TaskRow[]): Together[] {
+export function togetherFor(project: string, config: { environments: Environment[] }, rows: TaskRow[], running: (env: string) => boolean = () => false): Together[] {
   const envs = [...new Set(rows.filter((r) => r.state === 'review').map((r) => r.environment))];
   return envs.map((env) => {
     const n = rows.filter((r) => r.environment === env && readyForGroup(r)).length;
-    const live = rows.filter((r) => r.environment === env && r.groupChecks?.at(-1)?.outcome === 'checking');
-    const can = GROUP_CHECK_COMMAND.enabled({ config, env, ready: n, running: live.length > 0 });
+    const underWay = running(env);
+    const live = underWay ? rows.filter((r) => r.environment === env && r.groupChecks?.at(-1)?.outcome === 'checking') : [];
+    const can = GROUP_CHECK_COMMAND.enabled({ config, env, ready: n, running: underWay });
     const name = config.environments.find((e) => e.branch === env)?.name ?? env;
     const action: Action = {
       command: GROUP_CHECK_COMMAND.id, label: `Check together (${n})`, icon: 'checklist', ref: { project, env },
       ...(can.ok ? {} : { disabled: can.why }),
     };
-    const progress: Look | null = live.length ? { label: `Checking ${listWords(live.map((r) => r.id))} together for ${name}: running the full check`, icon: 'sync~spin', tone: 'blue' } : null;
+    const progress: Look | null = !underWay ? null
+      : live.length ? { label: `Checking ${taskList(live.map((r) => r.id))} together for ${name}: running the full check`, icon: 'sync~spin', tone: 'blue' }
+      : { label: `Checking a group together for ${name}`, icon: 'sync~spin', tone: 'blue' };
     return { env, action, progress };
   });
 }

@@ -35,9 +35,35 @@ test('a protected environment\'s tasks: off, since a person merges there', () =>
 
 test('a group under way: its step shows, in blue with a spinner, and the button is off until it ends', () => {
   const live = { groupChecks: [mark('checking', 'Checking with AV-2: running the full check')] };
-  const [t] = togetherFor('/r', config, [reviewed('AV-1', true, live), reviewed('AV-2', true, live), reviewed('AV-3')]);
+  const asked: string[] = [];
+  const [t] = togetherFor('/r', config, [reviewed('AV-1', true, live), reviewed('AV-2', true, live), reviewed('AV-3')], (env) => (asked.push(env), true));
   assert.deepEqual(t!.progress, { label: 'Checking AV-1 and AV-2 together for Devbox: running the full check', icon: 'sync~spin', tone: 'blue' });
   assert.match(t!.action.disabled!, /under way/);
+  assert.deepEqual(asked, ['devbox'], 'the lock for that environment is the one asked');
+});
+
+test('a run that died leaves checking marks but no lock: the button is on again, and no step shows', () => {
+  const live = { groupChecks: [mark('checking', 'Checking with AV-2: running the full check')] };
+  const [t] = togetherFor('/r', config, [reviewed('AV-1', true, live), reviewed('AV-2', true, live)], () => false);
+  assert.equal(t!.action.disabled, undefined, 'the lock, not a mark, says a group is under way');
+  assert.equal(t!.progress, null);
+});
+
+test('the lock is held before any task is marked checking: under way, with a step that names no task yet', () => {
+  const [t] = togetherFor('/r', config, [reviewed('AV-1'), reviewed('AV-2')], () => true);
+  assert.deepEqual(t!.progress, { label: 'Checking a group together for Devbox', icon: 'sync~spin', tone: 'blue' });
+  assert.match(t!.action.disabled!, /under way/);
+});
+
+test('the Board asks the hub whether the group holds its lock; a hub that cannot say means none under way', () => {
+  const rows = [reviewed('AV-1'), reviewed('AV-2')];
+  const base = { ...hub(), taskRows: () => rows };
+  const lane = (h: typeof base) => tasksModel(h).projects[0]!.columns.find((c) => c.group === 'review')!;
+  assert.equal(lane(base).together?.[0]?.action.disabled, undefined);
+  const asked: string[] = [];
+  const held = { ...base, groupRunning: (root: string, env: string) => (asked.push(`${root} ${env}`), true) };
+  assert.match(lane(held).together![0]!.action.disabled!, /under way/);
+  assert.deepEqual(asked, ['/r devbox']);
 });
 
 test('no task in review: no Check together at all', () => {

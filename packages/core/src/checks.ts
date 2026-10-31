@@ -6,7 +6,7 @@ import { AccError, parseJsonOutput, type RunResult, type Runner } from './exec.t
 import { GH_TIMEOUT_MS, ghToken } from './land.ts';
 import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { type GroupFound, groupSection } from './group-report.ts';
+import { type GroupFound, groupSection, yourPr } from './group-report.ts';
 
 /**
  * GitHub's checks on a pull request (D-076). Autopilot reads them, and the logs of the ones that failed,
@@ -307,7 +307,7 @@ export function queueSection(r: QueueReport | null | undefined): string[] {
   const lines = ['## What the merge queue found', ''];
   if (r.kind === 'conflict') {
     lines.push(
-      `This is a rework. Your change is pull request #${r.pr?.number}. Its review passed, and the merge queue took it to merge into ${base}, but ${base} has moved on, and merging it into ${short(r.sha)} conflicts in: ${r.conflicts.map((f) => `\`${f}\``).join(', ')}.`,
+      `This is a rework. ${yourPr(r.pr)}Its review passed, and the merge queue took it to merge into ${base}, but ${base} has moved on, and merging it into ${short(r.sha)} conflicts in: ${r.conflicts.map((f) => `\`${f}\``).join(', ')}.`,
       '',
       `Merge it in here: run \`git merge origin/${r.base}\`, resolve each of those files so that both your change and what ${base} added hold, then commit the merge. Keep the rest of your change as it is. Then finish as below: run \`acc gate run\`, then \`acc done\`. If a conflict can't be resolved without a choice that isn't yours, run \`acc block "<what you found>"\` and stop.`,
       '',
@@ -316,7 +316,7 @@ export function queueSection(r: QueueReport | null | undefined): string[] {
   }
   const where = r.merge ? `after merging ${base} in (as ${short(r.merge)}, put back since)` : `on ${short(r.sha)}`;
   lines.push(
-    `This is a rework. Your change is pull request #${r.pr?.number}. Its review passed, and the merge queue took it to merge into ${base}, but the full check failed ${where}: ${r.checks.map((c) => c.gate).join(', ')}. You ran the lighter checks; the full one runs once, in the queue.`,
+    `This is a rework. ${yourPr(r.pr)}Its review passed, and the merge queue took it to merge into ${base}, but the full check failed ${where}: ${r.checks.map((c) => c.gate).join(', ')}. You ran the lighter checks; the full one runs once, in the queue.`,
     '',
     `Reproduce each failure here and fix it, keeping the rest of the change as it is.${r.merge ? ` Merge ${base} in first, with \`git merge origin/${r.base}\`, since the failure may come from the two together.` : ''} Run the failing check by name, such as \`acc gate run ${r.checks[0]?.gate ?? 'check'}\`, then finish as below: commit, run \`acc gate run\`, then \`acc done\`. If a failure isn't caused by this change, such as a check that fails on ${base} too, don't work around it: run \`acc block "<what you found>"\` and stop.`,
     '',
