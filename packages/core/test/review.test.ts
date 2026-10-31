@@ -72,8 +72,7 @@ test('a passing review is kept for its commit, and the task stays in review, rea
   // Read-only by construction, and the long prompt goes on stdin.
   assert.ok(calls[0]!.startsWith(`-p --session-id fixed-uuid --name ${name} --permission-mode dontAsk`), calls[0]!.slice(0, 120));
   assert.match(calls[0]!, /--allowedTools Read Grep Glob --disallowedTools Bash Edit Write/);
-  assert.match(calls[0]!, /--permission-mode dontAsk --model claude-opus-5-5 /, 'no model chosen: the Command Center\'s default (D-086)');
-  assert.ok(!calls[0]!.includes('--effort'), 'no effort chosen: Claude Code\'s default');
+  assert.match(calls[0]!, /--permission-mode dontAsk --model claude-opus-5-5 --effort medium/, 'no model chosen: the Command Center\'s default for a reviewer, Opus 5.5 at medium (D-086, T-163)');
   const lighter = review(paths, { ...config, agents: { ...config.agents, reviewer: { model: 'sonnet', effort: 'medium', fallbackModel: null } } }, 'T-1', { run: runner, now, env: {} });
   assert.equal(lighter.verdict.verdict, 'pass');
   assert.match(calls[1]!, /--permission-mode dontAsk --model sonnet --effort medium/);

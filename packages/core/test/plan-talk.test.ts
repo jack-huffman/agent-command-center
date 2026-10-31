@@ -317,3 +317,14 @@ test('while a reply comes, its marker names the session it answers in, so its st
   writeFileSync(join(paths.analyses, `${id}.talking.json`), JSON.stringify({ pid: process.pid, startedAt: now().toISOString() }));
   assert.equal(talking(paths, id)?.sessionId, undefined, 'an older acc\'s marker has none, and is still a reply under way');
 });
+
+test('edge case: with a planner and a reviewer on different models, Talk it through runs on the planning agent\'s model and effort, not the reviewer\'s (T-163)', () => {
+  const raw = { ...GENERIC_CONFIG, agents: { planner: { model: 'sonnet', effort: 'medium' }, reviewer: { model: 'haiku', effort: 'high' } } };
+  const { paths, config, id } = setup(raw);
+  const calls: { args: string[]; opts?: RunOptions }[] = [];
+  talkPlan(paths, config, id, 'Why not a custom object?', 'd1.b', { run: claudeSays(reply(SAYS), calls), now, env: {} }, 'human:me');
+  assert.equal(calls.length, 1);
+  const args = calls[0]!.args;
+  assert.deepEqual(args.slice(args.indexOf('--model'), args.indexOf('--model') + 4), ['--model', 'sonnet', '--effort', 'medium']);
+  assert.ok(!args.includes('haiku'), 'the reviewer\'s model is not used');
+});

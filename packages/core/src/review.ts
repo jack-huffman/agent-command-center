@@ -8,7 +8,7 @@ import { type Actor, applyMove, checkMove, mutate, noGateHooks, noteMarkdown, re
 import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
-import { agentArgs } from './agents.ts';
+import { roleArgs } from './agents.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
 import { sessionName } from './names.ts';
 import { findingLine, NOTE_FIX_TRIES, noteFixPrompt, noteWording, verdictLines } from './note-wording.ts';
@@ -542,7 +542,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   const ask = (args: string[], input: string): ReturnType<typeof parseReview> => {
     // Read-only by construction: only the read tools are allowed, and dontAsk refuses everything else.
     const out: RunResult = run('claude', [
-      '-p', ...args, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
+      '-p', ...args, '--permission-mode', 'dontAsk', ...roleArgs(config, 'reviewer'),
       '--output-format', 'json', '--json-schema', JSON.stringify(VERDICT_SCHEMA), '--append-system-prompt', system,
       '--allowedTools', 'Read', 'Grep', 'Glob',
       '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',

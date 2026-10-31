@@ -66,8 +66,18 @@ export interface CloudAgents {
 export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,79}$/;
 /** The model an agent runs with when neither the project nor the clone names one (D-086). */
 export const DEFAULT_MODEL = 'claude-opus-5-5';
-export const AGENT_ROLES = ['builder', 'reviewer'] as const;
+export const AGENT_ROLES = ['builder', 'planner', 'reviewer'] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
+/**
+ * What each role runs with when the project's settings and the clone name none (T-163, D-135): one table.
+ * Opus 5.5 for all three. The planning agent and the reviewer read and judge, so they start at medium effort;
+ * a builder's effort is left to Claude Code's own. A project that names a model of its own gets no default effort.
+ */
+export const ROLE_DEFAULTS: Readonly<Record<AgentRole, { model: string; effort: Effort | null }>> = {
+  builder: { model: DEFAULT_MODEL, effort: null },
+  planner: { model: DEFAULT_MODEL, effort: 'medium' },
+  reviewer: { model: DEFAULT_MODEL, effort: 'medium' },
+};
 export const noProfile = (): AgentProfile => ({ model: null, effort: null, fallbackModel: null });
 
 export interface Environment {
@@ -196,7 +206,7 @@ export interface Config {
    * where a review runs when no flag says (T-86). Null where the project hasn't opted in, so nothing offers
    * the cloud.
    */
-  agents: { max: number; permissionMode: string; builder: AgentProfile; reviewer: AgentProfile; cloud: CloudAgents | null };
+  agents: { max: number; permissionMode: string; builder: AgentProfile; planner: AgentProfile; reviewer: AgentProfile; cloud: CloudAgents | null };
   autonomy: Autonomy;
   worktrees: { root: string | null; setup: string[] };
   /**
@@ -308,6 +318,7 @@ export const CONFIG_KEYS = [
   'trackers[].epics', 'trackers[].sprint', 'trackers[].queue', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
   'trackers[].statusFor', 'trackers[].changesField.id', 'trackers[].changesField.name', 'trackers[].changesField.format',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
+  'agents.planner.model', 'agents.planner.effort', 'agents.planner.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel',
   'agents.cloud.routine', 'agents.cloud.default', 'agents.cloud.quietMinutes', 'agents.cloud.max', 'agents.cloud.review', 'autonomy',
   'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.tests',
@@ -678,6 +689,7 @@ export function parseConfig(raw: unknown): ParseResult {
     return { model: model(p.model, 'model'), effort, fallbackModel: model(p.fallbackModel, 'fallbackModel') };
   };
   const builder = profileOf('builder');
+  const planner = profileOf('planner');
   const reviewer = profileOf('reviewer');
   // Cloud builders (GH-69): off unless the project says so. A section that's there opts in, even empty.
   let cloud: CloudAgents | null = null;
@@ -836,7 +848,7 @@ export function parseConfig(raw: unknown): ParseResult {
       environmentSpecific,
       knownDrift,
       trackers,
-      agents: { max: max as number, permissionMode: permissionMode as string, builder, reviewer, cloud },
+      agents: { max: max as number, permissionMode: permissionMode as string, builder, planner, reviewer, cloud },
       autonomy,
       worktrees: { root: isStr(w.root) ? w.root : null, setup: strList(w.setup) ? w.setup : [] },
       gates: {
@@ -977,7 +989,7 @@ export function writeConfig(file: string, config: Config): void {
   mkdirSync(dirname(file), { recursive: true });
   // A profile with nothing set is left out, so the file says only what was chosen (D-036).
   const profile = (p: AgentProfile) => Object.fromEntries(Object.entries(p).filter(([, v]) => v !== null));
-  const { builder, reviewer, cloud, ...agents } = config.agents;
+  const { builder, planner, reviewer, cloud, ...agents } = config.agents;
   // The cloud section is written only where the project opted in (GH-69), as it was given: a routine it has none of stays out.
   const cloudOut = cloud ? { cloud: { ...(cloud.routine ? { routine: cloud.routine } : {}), default: cloud.default, quietMinutes: cloud.quietMinutes, max: cloud.max, review: cloud.review } } : {};
   const out = {
@@ -990,7 +1002,7 @@ export function writeConfig(file: string, config: Config): void {
       ...Object.fromEntries(Object.entries(t).flatMap(([k, v]) => (k === 'epics' ? Object.entries(epicKeys(v as string[])) : [[k, v]])).filter(([, v]) => v !== null && !(Array.isArray(v) && !v.length))),
       ...(edits ? { edits } : {}),
     })),
-    agents: { ...agents, ...(Object.keys(profile(builder)).length ? { builder: profile(builder) } : {}), ...(Object.keys(profile(reviewer)).length ? { reviewer: profile(reviewer) } : {}), ...cloudOut },
+    agents: { ...agents, ...(Object.keys(profile(builder)).length ? { builder: profile(builder) } : {}), ...(Object.keys(profile(planner)).length ? { planner: profile(planner) } : {}), ...(Object.keys(profile(reviewer)).length ? { reviewer: profile(reviewer) } : {}), ...cloudOut },
   };
   writeAtomic(file, JSON.stringify(out, null, 2) + '\n');
 }

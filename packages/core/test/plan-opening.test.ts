@@ -216,3 +216,17 @@ test('the first message\'s marker names the new session, and a later one the ses
   startPlan(paths, config, id, 'Open deals only.', deps, 'human:me');
   assert.deepEqual(seen, ['sess-new', 'sess-open'], 'new, then the session the first reply was in');
 });
+
+test('edge case: with a planner and a reviewer on different models, the plan conversation runs on the planning agent\'s model and effort, not the reviewer\'s (T-163)', () => {
+  const raw = { ...GENERIC_CONFIG, agents: { planner: { model: 'sonnet', effort: 'medium' }, reviewer: { model: 'haiku', effort: 'high' } } };
+  const { paths, config, id } = setup(raw);
+  const calls: { args: string[]; opts?: RunOptions }[] = [];
+  const deps = { run: claude([result(FIRST, 'sess-open'), result({ understood: 'Two years.', questions: [] }, 'sess-open')], calls), now, env: {}, uuid: () => 'sess-open' };
+  startPlan(paths, config, id, 'Two years.', deps, 'human:me');
+  startPlan(paths, config, id, 'Closed deals too.', deps, 'human:me');
+  assert.equal(calls.length, 2, 'the opening and the answer that resumes it');
+  for (const { args } of calls) {
+    assert.deepEqual(args.slice(args.indexOf('--model'), args.indexOf('--model') + 4), ['--model', 'sonnet', '--effort', 'medium']);
+    assert.ok(!args.includes('haiku'), 'the reviewer\'s model is not used');
+  }
+});
