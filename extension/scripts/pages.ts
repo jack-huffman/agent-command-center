@@ -234,6 +234,9 @@ export const PAGES = [
   'ticket-deploy-off',
   'ticket-deploy-checking',
   'ticket-deploy-busy',
+  // Its build done and in Dev (T-161): Open Dev, How to test it and each component; then Open off, with no steps
+  'ticket-deploy-built',
+  'ticket-deploy-built-off',
   'ticket-plan-approved',
   'ticket-plan-changed',
   'ticket-plan-short',

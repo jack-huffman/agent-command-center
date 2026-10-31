@@ -140,7 +140,7 @@ export const OUTPUT_RUNS: Partial<Record<Page, RunSample>> = { 'output-running':
 export const OUTPUT_STEPS: Partial<Record<Page, StepSample>> = { 'output-steps-running': 'steps-running', 'output-steps-failed': 'steps-failed', 'output-steps-done': 'steps-done' };
 
 /** The Changes tab's deploy shots (T-138), each named for the sample it draws. */
-const DEPLOY_SHOTS = ['ticket-deploy-before', 'ticket-deploy-work', 'ticket-deploy-deployed', 'ticket-deploy-not', 'ticket-deploy-unknown', 'ticket-deploy-steps', 'ticket-deploy-pick', 'ticket-deploy-pick-off', 'ticket-deploy-off', 'ticket-deploy-checking', 'ticket-deploy-busy'] as const;
+const DEPLOY_SHOTS = ['ticket-deploy-before', 'ticket-deploy-work', 'ticket-deploy-deployed', 'ticket-deploy-not', 'ticket-deploy-unknown', 'ticket-deploy-steps', 'ticket-deploy-pick', 'ticket-deploy-pick-off', 'ticket-deploy-off', 'ticket-deploy-checking', 'ticket-deploy-busy', 'ticket-deploy-built', 'ticket-deploy-built-off'] as const;
 
 /**
  * The shots of a part that moved under the Changes tab's More (T-138), with More open, by the ticket each draws.

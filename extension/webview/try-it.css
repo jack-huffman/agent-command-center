@@ -1,0 +1,18 @@
+/* Try it in the org (T-161): on the development environment's row, Open, then how to test it and each component,
+   under a thin rule, not a box. The steps are numbered; a component's type, name and Open wrap between them on a
+   narrow page, never inside one. */
+.try { margin: 6px 0 0; padding-top: 6px; border-top: 1px dashed var(--line); }
+.try-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.try-why { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0; }
+.try-why .codicon { margin-top: 2px; }
+.try-sub { margin: 8px 0 4px; font-size: 0.95em; }
+.try-steps { margin: 0; padding-left: 20px; }
+.try-steps > li { padding: 1px 0; overflow-wrap: anywhere; }
+.try-none { margin: 0; }
+.try-comps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: auto minmax(0, max-content) auto; align-items: center; gap: 4px 10px; justify-content: start; }
+/* Each component's type, name and Open sit in the list's three columns, so the Opens line up. */
+.try-comp { display: contents; }
+.try-name { min-width: 0; overflow-wrap: anywhere; }
+.try-type { white-space: nowrap; }
+/* In the Agent panel, the same block sits under the actions without a rule of its own. */
+.side-agent .try { border-top: none; padding-top: 0; }

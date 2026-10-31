@@ -1,6 +1,6 @@
 // acc's Tasks commands: add, edit, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, briefAdviceLines, codeNames, type CriterionFinding, refuseBriefWording, unseenNow, DISPATCH_AGAIN, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, builderPlaceLook, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftChangesField, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, recordChanges, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, briefAdviceLines, codeNames, type CriterionFinding, refuseBriefWording, unseenNow, DISPATCH_AGAIN, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, builderPlaceLook, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftChangesField, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_ALL, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, recordChanges, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
@@ -156,7 +156,7 @@ function fileLines(paths: ReturnType<typeof repoPaths>, config: Config, ledger: 
 function noteShown(t: Task): string[] {
   const { note, fromLast, missing } = shownNote(t);
   if (!note) return missing ? [tone(fromLast ? 'Its last run left no note.' : 'Its builder left no note.', 'orange'), ''] : [];
-  const parts = (['landed', 'moved', 'open'] as const).flatMap((k) => [`  ${NOTE_LABELS[k]}:`, ...(note[k].length ? note[k].map((l) => `    - ${l}`) : ['    none'])]);
+  const parts = NOTE_ALL.filter((k) => k !== 'test' || note.test?.length).flatMap((k) => [`  ${NOTE_LABELS[k]}:`, ...(note[k]?.length ? note[k]!.map((l) => `    - ${l}`) : ['    none'])]);
   return [`Builder's note${fromLast ? ', from its last run' : ''} (${note.by}, ${note.ended === 'blocked' ? 'blocked' : 'to review'} ${note.at}):`, ...parts, ''];
 }
 

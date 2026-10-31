@@ -11,6 +11,7 @@ import type { DeployChoice, DeployPick, EnvRow, TicketDeploy } from '../src/mode
 import { button, el, icon, plural, status, when, work } from './dom.ts';
 import { api, memory, remember, state } from './state.ts';
 import { renderSteps } from './record-changes.ts';
+import { renderTryIt } from './try-it.ts';
 
 /** The key the tab remembers an open fold by, per ticket: the quiet line's list, More, Deploy…'s pick, and a row's components that differ. */
 export const openKey = (what: 'apart' | 'more' | 'pick' | `differs-${string}`, m: Pick<TicketModel, 'project' | 'key'>): string => `chg-${what}:${m.project}#${m.key}`;
@@ -101,6 +102,8 @@ function renderRow(m: TicketModel, d: TicketDeploy, r: EnvRow): HTMLElement {
   if (r.merged) row.append(el('p', 'small dp-merged', status({ ...r.merged.look, label: r.merged.words })));
   if (r.busy) row.append(el('p', 'small dp-busy', status(r.busy)));
   row.append(el('p', 'muted small dp-read', ...(r.readAt ? ['Read ', when(r.readAt)] : ['Not read yet']), checkAgain(m, d, r)));
+  // Its builder's deploy here passed (T-161): Open it, how to test it, and each component at its own page.
+  if (m.tryIt && m.tryIt.env === r.branch) row.append(renderTryIt(m, m.tryIt));
   return row;
 }
 

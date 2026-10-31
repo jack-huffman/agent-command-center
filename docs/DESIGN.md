@@ -696,6 +696,11 @@ acc done --landed "<what landed>" --moved "<tests, checks, ratchets that moved>"
   line, up to 10 a part and 300 characters a line. `--moved none` and `--open
   none` say there was nothing, so nothing is an explicit statement, not an
   omission. Something must have landed.
+- **How to test it (T-161).** A fourth part, `--test`, never required, to the
+  same limits and the same wording check: how a person tests the change in its
+  org. A Salesforce builder's packet says to end the note with it, and the
+  ticket shows it beside Open <environment> once the builder's deploy to the
+  development org passed, with each component opening at its own page there.
 - **Required of a builder's `acc done`.** Without it, or with a part left out,
   acc refuses and gives that exact command. A person's move to review needs
   none. `acc block` takes the same flags if it has something to say; its reason

@@ -5,6 +5,8 @@
  * open on what's missing, every row can't tell with its reason, deployed to UAT with steps left to do by hand
  * and Production not deployed, Deploy… open on its three environments, Deploy… open with Hotfix off for want of
  * an org, Deploy… off as a dependency is in none of them, QA's Check again under way, and an agent deploying to UAT.
+ * Built (T-161): in review, its builder's deploy to Dev passed, so Dev's row opens Dev, says how to test it and opens
+ * each component; built-off: this machine isn't logged in to acme-dev, and its builder gave no steps.
  */
 import { openSteps } from '../../../packages/core/src/change-steps.ts';
 import type { Environment } from '../../../packages/core/src/config.ts';
@@ -16,10 +18,11 @@ import { ticketChanges } from '../../src/model/changes.ts';
 import { ticketRecords } from '../../src/model/record-changes.ts';
 import type { TicketModel } from '../../src/model/task-page.ts';
 import { deployBlockers, ticketDeploy } from '../../src/model/ticket-deploy.ts';
+import { tryIt } from '../../src/model/try-it.ts';
 import { MIN, ROOT } from './shared.ts';
 import { sampleTicket } from './task-page.ts';
 
-export type DeploySample = 'before' | 'work' | 'deployed' | 'not' | 'unknown' | 'steps' | 'pick' | 'pick-off' | 'off' | 'checking' | 'busy';
+export type DeploySample = 'before' | 'work' | 'deployed' | 'not' | 'unknown' | 'steps' | 'pick' | 'pick-off' | 'off' | 'checking' | 'busy' | 'built' | 'built-off';
 
 const D = 'force-app/main/default';
 const env = (name: string, promotesTo: string[], more: Partial<Environment> = {}): Environment => ({ name, branch: name.toLowerCase(), type: 'sandbox' as Environment['type'], org: `acme-${name.toLowerCase()}`, default: false, protected: false, promotesTo, ...more });
@@ -29,6 +32,8 @@ export const CONFIG = { profile: 'salesforce' as const, environments: ENVS, gith
 const PLAN = [`${D}/classes/CaseRouting.cls`, `${D}/classes/CaseRoutingTest.cls`, `${D}/flows/Case_Escalation.flow-meta.xml`, `${D}/objects/Case/fields/Tier__c.field-meta.xml`];
 const MADE = [`${D}/classes/CaseRouting.cls`, `${D}/classes/CaseRouting.cls-meta.xml`, `${D}/classes/CaseRoutingTest.cls`, `${D}/flows/Case_Escalation.flow-meta.xml`,
   `${D}/objects/Case/fields/Tier__c.field-meta.xml`, `${D}/permissionsets/Support_Agent.permissionset-meta.xml`, `${D}/classes/LegacyRouting.cls`];
+/** How to test it, as ACME-12's builder wrote it in its note (T-161). */
+const BUILT_STEPS = ['Open a Case with the Premium tier.', 'Click Escalate.', 'The Case goes to the Premium queue, and the Tier field shows Premium.'];
 const tier: RecordChange = { object: 'Routing_Tier__c', action: 'create', match: [{ field: 'Name', value: 'Premium' }], fields: [{ field: 'Hours__c', from: null, to: '4' }] };
 
 /** One environment's reading, as acc where keeps it. */
@@ -40,7 +45,8 @@ function read(branch: string, state: WhereState, at: string, more: Partial<EnvWh
 export function sampleDeployTicket(now: number, which: DeploySample): TicketModel {
   const at = (min: number) => new Date(now - min * MIN).toISOString();
   const m = sampleTicket(now);
-  const deployedOnce = which !== 'before' && which !== 'work';
+  const built = which === 'built' || which === 'built-off';
+  const deployedOnce = which !== 'before' && which !== 'work' && !built;
   const inUat = which === 'steps';
   const promotions = [
     ...(deployedOnce ? [{ from: 'dev', to: 'qa', pr: { number: 61, url: 'https://github.com/acme/service/pull/61' }, state: 'merged' as const, at: at(180), mergedAt: at(178) }] : []),
@@ -66,10 +72,12 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   };
   const task = {
     id: 'ACME-12', title: m.title, brief: '', source: { kind: 'jira', key: 'ACME-12', url: null }, environment: 'dev', deps: [], labels: [],
-    state: which === 'before' ? 'todo' : which === 'work' ? 'review' : 'done', blocker: null,
-    run: which === 'before' ? null : { branch: 'task/ACME-12-premium-escalation' }, pr: deployedOnce ? { number: 58, url: 'u', state: 'merged' } : which === 'work' ? { number: 58, url: 'u', state: 'open' } : null,
+    state: which === 'before' ? 'todo' : which === 'work' || built ? 'review' : 'done', blocker: null,
+    run: which === 'before' ? null : { branch: 'task/ACME-12-premium-escalation', ...(built ? { note: { landed: ['Cases route by tier.'], moved: [], open: [], at: at(30), by: 'builder:ACME-12', ended: 'review', ...(which === 'built' ? { test: BUILT_STEPS } : {}) } } : {}) },
+    pr: deployedOnce ? { number: 58, url: 'u', state: 'merged' } : which === 'work' || built ? { number: 58, url: 'u', state: 'open' } : null,
     history: [], createdAt: at(600), updatedAt: at(20), promotions, outside,
-    deploys: deployedOnce ? [{ env: 'dev', org: 'acme-dev', sha: 'b4d2c0f', at: at(200), jobId: null, paths: [], components: [], verified: 0, tests: null }] : [],
+    deploys: deployedOnce ? [{ env: 'dev', org: 'acme-dev', sha: 'b4d2c0f', at: at(200), jobId: null, paths: [], components: [], verified: 0, tests: null }]
+      : built ? [{ env: 'dev', org: 'acme-dev', sha: 'b4d2c0f', at: at(35), jobId: '0Af1', paths: MADE.filter((p) => !p.includes('Legacy')), components: [], verified: 5, tests: { names: ['CaseRoutingTest'], outcome: 'pass', ran: 4, failed: 0, coverage: '92%' } }] : [],
   } as unknown as Task;
   // What acc where last read: each state at least once across the shots, and none before there's work.
   const where: TicketWhere | null = !deployedOnce ? null : {
@@ -99,6 +107,7 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   const acc = m.acc && deployedOnce ? { ...m.acc, conflicts: null, checks: m.acc.checks.filter((c) => !deployBlockers([c]).length) } : m.acc;
   return {
     ...m, acc, project: ROOT, changes, records,
+    tryIt: tryIt(config, task, (b) => which === 'built-off' && b === 'dev'),
     deploy: ticketDeploy({
       config, task: which === 'off' ? { ...task, deps: ['ACME-3'] } : task, tasks: which === 'off' ? [task, dep] : [task], deploying: which === 'busy' ? 'uat' : null,
       failing: deployBlockers(acc?.checks ?? []), conflicts: acc?.conflicts ? 'dev' : null, stepsLeft: openSteps(task).length, where, reading: (b) => which === 'checking' && b === 'qa',
