@@ -1,12 +1,12 @@
 {
   "tests": {
-    "floor": 3547
+    "floor": 3568
   },
   "screenshots.clipped": {
-    "floor": 189903
+    "floor": 193901
   },
   "screenshots.sideways": {
-    "floor": 9351
+    "floor": 9511
   },
   "screenshots.overview": {
     "floor": 1199
@@ -21,16 +21,16 @@
     "floor": 855
   },
   "screenshots.a11y": {
-    "floor": 740185
+    "floor": 753683
   },
   "screenshots.actions": {
-    "floor": 2280
+    "floor": 2405
   },
   "screenshots.disabled": {
-    "floor": 1823
+    "floor": 1912
   },
   "screenshots.sizes": {
-    "floor": 6399
+    "floor": 6488
   },
   "screenshots.ci.a11y": {
     "floor": 622973

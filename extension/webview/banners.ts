@@ -10,10 +10,12 @@ import type { BlockedAnswered } from '../src/model/banners.ts';
 import type { TicketAcc, TicketModel } from '../src/model/task-page.ts';
 import { button, type Child, el, icon, keptInput, md, plural, work } from './dom.ts';
 import { optionWords } from './note.ts';
+import { retryControl } from './deploy-retry.ts';
+import type { DeployRetry } from '../src/model/deploy-retry.ts';
 import { Pending } from './pending.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 
-export type BannerId = 'blocked' | 'conflicts' | 'checks' | 'card' | 'files';
+export type BannerId = 'blocked' | 'deploy' | 'conflicts' | 'checks' | 'card' | 'files';
 
 /** One banner: its label, then its summary, which read as one sentence; and what it shows opened. */
 export interface Banner {
@@ -256,9 +258,18 @@ export function drawBanner(m: TicketModel, b: Banner): HTMLDetailsElement {
   return d;
 }
 
-/** The banners above a task page's tabs, or none. */
+/** Retry with an agent's banner (T-174): what went wrong with the deploy to the development org; opened, why in full and the action. */
+export function retryBanner(m: TicketModel, r: DeployRetry): HTMLDetailsElement {
+  const d = drawBanner(m, { id: 'deploy', icon: r.look.icon, tone: r.look.tone as Banner['tone'], label: r.look.label, sep: ' ', summary: `to ${r.env}`, note: null, text: r.failure, lines: [], files: false });
+  d.querySelector('.banner-body')?.append(retryControl(m, r));
+  return d;
+}
+
+/** The banners above a task page's tabs, or none: Retry with an agent's after why it's blocked. */
 export function renderBanners(m: TicketModel): HTMLElement[] {
-  return bannersOf(m.acc).map((b) => drawBanner(m, b));
+  const out: HTMLElement[] = bannersOf(m.acc).map((b) => drawBanner(m, b));
+  if (m.retry) out.splice(m.acc?.blocker ? 1 : 0, 0, retryBanner(m, m.retry));
+  return out;
 }
 
 export const area: PageArea = {

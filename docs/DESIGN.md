@@ -347,7 +347,11 @@ Two states aren't stored. They're derived when the ledger is read:
 - **Resume** (`acc resume <id>`, D-067) carries a stopped builder's session on
   in the folder its conversation is saved under, with the rules it was
   dispatched with, and tells it its last turn ended early. It's a person's or
-  autopilot's, never an agent's.
+  autopilot's, never an agent's. `acc resume <id> --deploy` is Retry with an
+  agent (T-174): for a Salesforce task whose deploy to the development org
+  failed or never ran, the builder is told which deploy failed and why, deploys
+  again, fixes only its own work, and blocks with options on a failure outside
+  it. A blocked task, or one in review, goes back to running as it carries on.
 - **Keeping awake** (D-067): on macOS, acc holds `caffeinate -i -w <pid>` for as
   long as a builder, reviewer or analyst it started runs, and ends it when the
   task leaves running. Only idle sleep is held off: the display still sleeps,
@@ -1640,7 +1644,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
   never moves where the ticket is (T-166). The
   development environment's row says whether the work is merged into its
   branch; only the usual next step says Next; a deploy under way shows on its
-  row. Then one primary Deploy…, which asks where, from at most three
+  row. Where the builder's deploy to the development org failed, or never ran,
+  that row and a banner above the tabs show Retry with an agent (T-174), off
+  with why while its builder runs or with its worktree gone. Then one primary Deploy…, which asks where, from at most three
   environments ahead, each saying what happens next ("An agent deploys it", or
   after you type Production's name); the pick starts the deploy guide's agent
   there (D-235, T-156). Nothing on the tab deploys by itself. Deploy… is off,

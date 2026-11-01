@@ -8,14 +8,17 @@ import { type Config, parseConfig } from '../src/config.ts';
 import { AccError, run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { draftChangesField } from '../src/field-drafts.ts';
 import { waiveGates } from '../src/gates.ts';
-import { displayState, type LedgerEvent, mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
+import { displayState, type LedgerEvent, moveTask, mutate, noGateHooks, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
+import { nextStep, taskFacts } from '../src/autopilot-rules.ts';
+import { retryDeploy } from '../src/deploy-retry.ts';
+import { transcriptDir } from '../src/transcript.ts';
 import { mergeMethod, mergePr } from '../src/merge.ts';
 import { repoPaths } from '../src/paths.ts';
 import { DEPLOY_GATE } from '../src/deploy-commands.ts';
 import { ownDeployAt, ownRunBefore, writeReceipt } from '../src/receipts.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
 import { listUpdates } from '../src/updates.ts';
-import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
+import { bad, fakeAwake, fakeRunner, GENERIC_CONFIG, gh41Lines, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-06T12:00:00Z');
 const BRANCH = 'task/T-1-add-sum';
@@ -443,4 +446,86 @@ test('a merge drafts the ticket\'s changes field once; sync\'s later draft says 
   assert.deepEqual(second.replaces, [draft!.id]);
   assert.doesNotMatch(second.text, /extra\.js/);
   assert.deepEqual(drafts().map((u) => u.id), [second.id], 'one draft is open: the merge\'s is replaced');
+});
+
+// ---------------------------------------------------------------- after Retry with an agent (T-174)
+
+const RETRY_SID = '0c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f';
+
+/**
+ * T-1 in review on a Salesforce project, its review passed on its head but its deploy to the development org failed
+ * (the org was down), so it can't merge; then a person's Retry with an agent: its builder resumed, the task running.
+ */
+function retried(s: ReturnType<typeof setup>): Config {
+  const salesforce: Config = { ...s.config, profile: 'salesforce' };
+  mutate(s.paths, now, (l, emit) => {
+    const t = l.tasks[0]!;
+    t.run = { ...t.run!, sessionId: RETRY_SID };
+    t.deployFailures = [{ env: 'main', org: 'Acme Dev', at: LONG_AGO, reason: 'The org was down for maintenance.' }];
+    emit({ type: 'task.updated', task: 'T-1', actor: 'builder', by: 'builder:T-1', data: {} });
+  });
+  held(s, github(s.sha), 'merge', /own deploy to main hasn't passed/, salesforce);
+  const projects = tempDir('projects-');
+  mkdirSync(transcriptDir(projects, s.dir), { recursive: true });
+  writeFileSync(join(transcriptDir(projects, s.dir), `${RETRY_SID}.jsonl`), gh41Lines(RETRY_SID, s.dir).join('\n') + '\n');
+  const launched: string[][] = [];
+  retryDeploy(s.paths, salesforce, 'T-1', {
+    run: fakeRunner({ 'claude agents --json': ok('[]') }), now, env: {}, accBinDir: '/acc/bin', projectsDir: projects, awake: fakeAwake().deps,
+    launch: (_cmd, args) => { launched.push(args); return 4_000_003; },
+  }, { actor: 'human', by: 'human:test' });
+  assert.equal(launched.length, 1, 'its builder carries on');
+  assert.equal(first(s.paths).state, 'running');
+  return salesforce;
+}
+
+/** The resumed builder's acc done: a note, and back to review. */
+const builderDone = (s: ReturnType<typeof setup>, config: Config) =>
+  moveTask(s.paths, config, 'T-1', { to: 'review', actor: 'builder', by: 'builder:T-1', note: { landed: ['The deploy passed.'], moved: ['none'], open: ['none'] } }, noGateHooks, now);
+
+test('after a retry whose deploy passes on the reviewed commit with no code change, autopilot merges it into the development environment (T-174)', () => {
+  const s = setup();
+  const salesforce = retried(s);
+  // The builder deploys again on the same commit, and it passes; then acc done.
+  deployed(s, s.sha);
+  builderDone(s, salesforce);
+  const t = first(s.paths);
+  assert.equal(t.state, 'review');
+  // Its review still holds on the head: autopilot doesn't review again, and takes it on to the merge.
+  const facts = taskFacts(s.paths, t, run);
+  assert.equal(facts.verdict, 'pass');
+  assert.notEqual(nextStep(readLedger(s.paths.ledger), salesforce, t, facts).step, 'review');
+  const calls: string[] = [];
+  const r = mergePr(s.paths, salesforce, 'T-1', deps(calls, github(s.sha)), by);
+  assert.equal(merges(calls).length, 1, 'merged');
+  assert.equal(r.sha, s.sha);
+});
+
+test('after a retry that changed code, the review runs again before the merge: the old review never merges the new commit (T-174)', () => {
+  const s = setup();
+  const salesforce = retried(s);
+  // The builder fixes its own work: commit B, deployed there, landed there.
+  gitIn(s.dir, 'checkout', '-q', BRANCH);
+  writeFileSync(join(s.dir, 'sum.js'), 'export const sum = (a, b) => Number(a) + Number(b);\n');
+  gitIn(s.dir, 'add', '-A');
+  gitIn(s.dir, 'commit', '-q', '-m', 'T-1: sum, fixed for the deploy');
+  gitIn(s.dir, 'checkout', '-q', 'main');
+  gitIn(s.dir, 'push', '-q', 'origin', `${BRANCH}:${BRANCH}`);
+  const b = gitIn(s.dir, 'rev-parse', BRANCH);
+  waiveGates(s.paths, s.config, { sha: b, env: s.config.environments[0]!, gates: ['test'], reason: 'covered', by: 'human:test', now });
+  deployed(s, b);
+  mutate(s.paths, now, (l, emit) => {
+    l.tasks[0]!.pr!.sha = b;
+    emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'human:test', data: { landed: b } });
+  });
+  builderDone(s, salesforce);
+  const t = first(s.paths);
+  // Autopilot reviews first. The mutant that merges after a retry that changed code with no new review is caught here.
+  assert.equal(nextStep(readLedger(s.paths.ledger), salesforce, t, taskFacts(s.paths, t, run)).step, 'review');
+  held(s, github(b), 'merge-waits', new RegExp(`^T-1's review hasn't passed on ${b.slice(0, 7)}\\.$`), salesforce);
+  // Reviewed on B, it merges.
+  const v: Verdict = { v: 1, task: 'T-1', sha: b, env: 'main', verdict: 'pass', summary: 'Adds sum.', criteria: [], findings: [], sessionId: 's', at: now().toISOString(), durationMs: 1, costUsd: null };
+  writeFileSync(reviewPath(s.paths, 'T-1', b), JSON.stringify(v));
+  const calls: string[] = [];
+  mergePr(s.paths, salesforce, 'T-1', deps(calls, github(b)), by);
+  assert.equal(merges(calls).length, 1);
 });

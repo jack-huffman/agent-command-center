@@ -8,7 +8,7 @@ import { builderEffort, checkModelEffort, effortFixWords } from './efforts.ts';
 import { builderSettings } from './packet.ts';
 import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { remindedPath } from './hooks.ts';
-import { type Actor, type ClaudeSession, DONE_COMMAND, mutate, readLedger, sessionActive, sessionsOf, type Task } from './ledger.ts';
+import { type Actor, applyMove, checkMove, type ClaudeSession, DONE_COMMAND, type Ledger, mutate, noGateHooks, readLedger, sessionActive, sessionsOf, type State, type Task } from './ledger.ts';
 import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { claudeProjectsDir, lastSaid, savedFolder } from './transcript.ts';
@@ -173,6 +173,25 @@ export interface ResumeOptions {
   by: string;
   /** What to tell it instead of the ready message. */
   message?: string;
+  /**
+   * A retry of its deploy (T-174): a blocked task, or one in review, is moved back to running as its builder
+   * carries on, with this reason in its History. A running one stays as it is.
+   */
+  move?: { reason: string };
+}
+
+/** The states a retry of the deploy carries a builder on from (T-174), besides running. */
+export const RESUME_MOVES_FROM: readonly State[] = ['blocked', 'review'];
+
+/**
+ * What stops a task moving back to running for a retry, as a rework's restart checks it: the project's cap on
+ * builders, and an environment no agent works on. No rule moves blocked or review to running for any other cause,
+ * so the move is checked as rework's (rework to running), and made by resume alone.
+ */
+export function retryMoveProblems(ledger: Ledger, config: Config, task: Task, req: { actor: Actor; by: string; reason: string }): string[] {
+  if (task.state === 'running') return [];
+  if (!RESUME_MOVES_FROM.includes(task.state)) return [`${task.id} is ${task.state}. A retry carries on a builder that is running, blocked or in review.`];
+  return checkMove(ledger, config, { ...task, state: 'rework' }, { to: 'running', ...req }, noGateHooks);
 }
 
 export interface ResumeResult {
@@ -206,7 +225,8 @@ export function resume(paths: RepoPaths, config: Config, id: string, deps: Resum
   const { now } = deps;
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);
-  if (task.state !== 'running') throw new AccError('refused', `${id} is ${task.state}. Only a running task's builder is resumed.`);
+  // A retry of its deploy also carries on a blocked builder, or one in review (T-174); the move is checked as it's made.
+  if (task.state !== 'running' && !(opts.move && RESUME_MOVES_FROM.includes(task.state))) throw new AccError('refused', `${id} is ${task.state}. Only a running task's builder is resumed.`);
   const sessionId = task.run?.sessionId;
   if (!sessionId) throw new AccError('refused', `${id} has no session to carry on. Abandon it and dispatch it again.`);
   const worktree = task.run?.worktree;
@@ -267,6 +287,11 @@ function resumeClaimed(paths: RepoPaths, config: Config, id: string, deps: Resum
   const said = lastSaid(projectsDir, sessionId, [folder]);
   const head = run('git', ['log', '-1', '--format=%h'], { cwd: worktree }).stdout.trim() || null;
   const message = opts.message?.trim() || resumeMessage(task, said, head);
+  // Before anything is stopped: a move back to running the project's cap or its environment refuses (T-174).
+  if (opts.move) {
+    const problems = retryMoveProblems(readLedger(paths.ledger), config, task, { actor: opts.actor, by: opts.by, reason: opts.move.reason });
+    if (problems.length) throw new AccError('refused', `${id} can't go back to running: ${problems.join(' ')}`);
+  }
   // Before anything is stopped: a model and effort that don't fit are refused here (D-128).
   const cmd = resumeCommand(task, withCloneAgents(config, paths.root, run), { sessionId, message, accBinDir: deps.accBinDir, basePath: deps.env.PATH ?? '', accCommand: deps.accCommand });
 
@@ -293,7 +318,14 @@ function resumeClaimed(paths: RepoPaths, config: Config, id: string, deps: Resum
   try {
     const recorded = mutate(paths, now, (l, emit) => {
       const t = l.tasks.find((x) => x.id === id);
-      if (!t?.run || t.state !== 'running') throw new AccError('refused', `${id} left running meanwhile, so its resume was stopped.`);
+      if (!t?.run || t.state !== task.state) throw new AccError('refused', `${id} left ${task.state} meanwhile, so its resume was stopped.`);
+      // A retry of its deploy moves it back to running (T-174), checked again here, where nothing else can move it.
+      if (t.state !== 'running') {
+        const req = { to: 'running' as const, actor: opts.actor, by: opts.by, reason: opts.move!.reason };
+        const problems = retryMoveProblems(l, config, t, req);
+        if (problems.length) throw new AccError('refused', `${id} can't go back to running: ${problems.join(' ')}`);
+        applyMove(t, req, emit, now);
+      }
       t.run.resumes = [...(t.run.resumes ?? []), { at, actor: opts.actor, by: opts.by }];
       t.run.model = cmd.model;
       if (cmd.effort) t.run.effort = cmd.effort;
