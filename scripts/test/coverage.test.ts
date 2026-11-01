@@ -86,7 +86,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/efforts.ts': ['effortSourceWords', 'checkEffortName', 'checkEffortPick', 'modelTakes', 'effortFixWords', 'dispatchEffort'],
   'packages/core/src/exec.ts': ['ghEnv', 'isGh'],
   'packages/core/src/gates.ts': ['lastLine', 'packageDirs', 'baseFor', 'changedPaths'],
-  'packages/core/src/github.ts': ['CLONE_ACCOUNT_KEY', 'credentialHelper', 'ghAccounts'],
+  'packages/core/src/github.ts': ['credentialHelper', 'ghAccounts'],
   'packages/core/src/held.ts': ['holdWords'],
   'packages/core/src/holding.ts': ['startingNow', 'claimHeld', 'releaseHeld'],
   'packages/core/src/hooks.ts': ['findAccRoot', 'PERSON_ONLY_ACC', 'sessionStartHook', 'stopHook', 'parseEventInput'],

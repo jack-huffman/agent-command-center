@@ -14,6 +14,7 @@ import { SHARE_JOIN_COMMAND } from './model/join.ts';
 import { runFile } from './run.ts';
 import { exec } from './trackers.ts';
 import { activeGhAccount } from './logic/setup.ts';
+import { inProcessWords } from './logic/processes.ts';
 
 /** A join under way in this window: Join a team project waits until it's done. */
 let joining = false;
@@ -48,7 +49,7 @@ async function join(accScript: string, given?: unknown): Promise<void> {
     const first = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Finding the GitHub account that can read it…' }, () => accIn(accScript, joinArgs(address, { dryRun: true })));
     const check = joinAnswer<Extract<JoinCheck, { ok: true }>>(first.stdout);
     if (!check.ok) {
-      void vscode.window.showErrorMessage(`✗ It can't be joined. Nothing was made.`, { modal: true, detail: check.message });
+      void vscode.window.showErrorMessage(`✗ It can't be joined. Nothing was made.`, { modal: true, detail: inProcessWords(check.message) });
       return;
     }
     const account = check.account ?? await pickAccount(check.readers);
@@ -58,7 +59,7 @@ async function join(accScript: string, given?: unknown): Promise<void> {
     const done = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Cloning ${check.repo} as ${account}…` }, () => accIn(accScript, joinArgs(address, { dir, account })));
     const joined = joinAnswer<{ dir: string; project: string | null }>(done.stdout);
     if (!joined.ok) {
-      void vscode.window.showErrorMessage(`✗ ${check.repo} wasn't cloned.`, { modal: true, detail: joined.message });
+      void vscode.window.showErrorMessage(`✗ ${check.repo} wasn't cloned.`, { modal: true, detail: inProcessWords(joined.message) });
       return;
     }
     await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(joined.dir), { forceNewWindow: !!vscode.workspace.workspaceFolders?.length });

@@ -28,7 +28,7 @@ test('more than one account that can read it: at most three, the active one firs
 test('acc join\'s answer is read as JSON, and a refusal, or no answer at all, is its words', () => {
   assert.deepEqual(joinAnswer('{"repo":"acme-co/x","readers":["a"],"account":"a","dir":"/d"}'), { ok: true, repo: 'acme-co/x', readers: ['a'], account: 'a', dir: '/d' });
   assert.deepEqual(joinAnswer('{"error":"refused","message":"No GitHub account can read it."}'), { ok: false, message: 'No GitHub account can read it.' });
-  assert.deepEqual(joinAnswer(''), { ok: false, message: 'acc gave no answer.' });
+  assert.deepEqual(joinAnswer(''), { ok: false, message: 'The Command Center gave no answer.' });
   assert.deepEqual(joinAnswer('not json'), { ok: false, message: 'not json' });
 });
 

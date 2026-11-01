@@ -1,0 +1,14 @@
+[
+  {
+    "command": "acc.join",
+    "title": "Join a team project",
+    "category": "Agent Command Center",
+    "icon": "$(repo-clone)"
+  },
+  {
+    "command": "acc.join.share",
+    "title": "Share how to join this project",
+    "category": "Agent Command Center",
+    "icon": "$(copy)"
+  }
+]

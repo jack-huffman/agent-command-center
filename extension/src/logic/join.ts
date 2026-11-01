@@ -34,9 +34,9 @@ export function joinAnswer<T extends object>(stdout: string): ({ ok: true } & T)
   try {
     const j = JSON.parse(stdout) as T & { error?: string; message?: string };
     if (j && typeof j === 'object' && !('error' in j)) return { ok: true, ...j };
-    return { ok: false, message: String(j?.message ?? 'acc refused.') };
+    return { ok: false, message: String(j?.message ?? 'The Command Center couldn\'t join it.') };
   } catch {
-    return { ok: false, message: stdout.trim() || 'acc gave no answer.' };
+    return { ok: false, message: stdout.trim() || 'The Command Center gave no answer.' };
   }
 }
 
