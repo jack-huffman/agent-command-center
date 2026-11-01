@@ -74,6 +74,14 @@ test('Save names a required list that is hidden with no choice, and says to wait
   const loading = signed();
   loading.pickers.statusColumn = { options: [], selected: [], state: 'loading', error: null };
   assert.equal(connectModel(loading).save.why?.label, 'Wait for its lists to load first.', 'a list that loads: wait');
+  // T-170: the wait is decided by the picker's state, not its icon. A picker that fails shows a look with another icon and state.
+  const shown = connectModel(loading).pickers.find((p) => p.key === 'statusColumn')!;
+  assert.deepEqual([shown.look?.label, shown.look?.state], ['Loading', 'loading'], 'a loading list says its state in its look');
+  const failed = signed();
+  failed.pickers.statusColumn = { options: [], selected: [], state: 'failed', error: 'no answer', };
+  const fm = connectModel(failed);
+  assert.equal(fm.pickers.find((p) => p.key === 'statusColumn')!.look?.state, undefined, 'edge case: a failed list is not loading, so it holds nobody back');
+  assert.notEqual(fm.save.why?.label, 'Wait for its lists to load first.');
 });
 
 test('an untouched empty field shows no warning, on every tracker; a warning shows after the person tries to go on', () => {

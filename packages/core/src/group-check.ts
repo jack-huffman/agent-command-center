@@ -39,7 +39,7 @@ import { satisfies } from './receipts.ts';
 import { MergeConflict, mergeBaseIn, merging } from './refresh.ts';
 import { reviewedAt } from './review.ts';
 import type { SlotOptions } from './semaphore.ts';
-import type { TaskCommand } from './task-deploy.ts';
+import type { TaskCommand } from './task-command.ts';
 import { draftUpdate } from './updates.ts';
 
 /** The fewest tasks a group check takes: one alone is its own merge's check. */

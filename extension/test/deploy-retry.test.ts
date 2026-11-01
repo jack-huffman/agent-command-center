@@ -95,8 +95,8 @@ test('off, the button says why beside it and in its title, and a click sends not
   assert.match(box.all('dp-retry-why')[0]!.textContent, /still working on it/);
   b.listeners.get('click')?.forEach((f) => f({ stopPropagation: () => undefined }));
   assert.deepEqual(dom.sent, [], 'a click on an off button sends nothing');
-  const failed = retryControl(m, { ...m.retry!, disabled: null, error: 'claude agents didn\'t answer' }) as unknown as PageElement;
-  assert.match(failed.all('dp-retry-error')[0]!.textContent, /It didn't start: claude agents didn't answer/);
+  const failed = retryControl(m, { ...m.retry!, disabled: null, error: 'Claude Code\'s sessions didn\'t answer' }) as unknown as PageElement;
+  assert.match(failed.all('dp-retry-error')[0]!.textContent, /It didn't start: Claude Code's sessions didn't answer/);
   const waiting = retryControl(m, { ...m.retry!, retrying: true, disabled: 'Its builder is starting again.' }) as unknown as PageElement;
   assert.match(buttonOf(waiting).textContent, /Retrying…/);
   assert.equal(waiting.all('dp-retry-why').length, 0, 'the button itself says it waits');

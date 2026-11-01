@@ -12,7 +12,7 @@
  * this machine isn't logged in to acme-dev, and its builder gave no steps.
  * Retry with an agent (T-174) on Dev's row and in its banner, opened: blocked after its builder's deploy to Dev failed
  * on a lock (retry, on); running with that failure while its builder still works (retry-off, off with why); and blocked
- * before its builder ever deployed, its worktree gone (retry-never, off with why).
+ * before its builder ever deployed, its worktree gone (retry-never, off with why, and why an earlier click didn't start).
  */
 import { openSteps } from '../../../packages/core/src/change-steps.ts';
 import type { Environment } from '../../../packages/core/src/config.ts';
@@ -129,7 +129,8 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   return {
     ...m, acc, project: ROOT, changes, records,
     testing: testing(config, task, (b) => which === 'built-off' && b === 'dev'),
-    retry: deployRetry({ config, task, runs: which === 'retry-off', worktree: which !== 'retry-never' }),
+    // retry-never also says why an earlier click didn't start its builder.
+    retry: deployRetry({ config, task, runs: which === 'retry-off', worktree: which !== 'retry-never', error: which === 'retry-never' ? 'Claude Code\'s sessions didn\'t answer, so acc can\'t tell whether ACME-12\'s builder is still at work. Try again in a moment.' : null }),
     deploy: ticketDeploy({
       config, task: which === 'off' ? { ...task, deps: ['ACME-3'] } : task, tasks: which === 'off' ? [task, dep] : [task], deploying: which === 'busy' ? 'uat' : null,
       failing: deployBlockers(acc?.checks ?? []), conflicts: acc?.conflicts ? 'dev' : null, stepsLeft: openSteps(task).length, where, reading: (b) => which === 'checking' && b === 'qa',

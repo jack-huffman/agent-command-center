@@ -15,7 +15,7 @@ import { AccError } from './exec.ts';
 import { type Actor, type ClaudeSession, DONE_COMMAND, readLedger, sessionActive, sessionsOf, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { listSessions, resume, RESUME_MOVES_FROM, type ResumeDeps, type ResumeResult, resuming } from './resume.ts';
-import type { TaskCommand } from './task-deploy.ts';
+import type { TaskCommand } from './task-command.ts';
 
 /** The action's label, on the development row, on the banner and in the CLI's words. */
 export const DEPLOY_RETRY_LABEL = 'Retry with an agent';
@@ -140,7 +140,7 @@ export function retryDeploy(paths: RepoPaths, config: Config, id: string, deps: 
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);
   const sessions = config.profile === 'salesforce' && task.run?.sessionId ? listSessions(deps.run, paths.root) : [];
-  if (!sessions) throw new AccError('refused', `claude agents didn't answer, so acc can't tell whether ${id}'s builder is still at work. Try again in a moment.`);
+  if (!sessions) throw new AccError('refused', `Claude Code's sessions didn't answer, so acc can't tell whether ${id}'s builder is still at work. Try again in a moment.`);
   const can = deployRetryEnabled({ config, task, runs: builderRuns(task, sessions, !!resuming(paths, id)), worktree: !!task.run?.worktree && existsSync(task.run.worktree) });
   if (!can.ok) throw new AccError('refused', `${DEPLOY_RETRY_LABEL} can't run for ${id}: ${can.why}`);
   const c = deployRetryCase(config, task)!;

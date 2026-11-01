@@ -187,7 +187,7 @@ test('Retry is refused, with nothing started and the state as it was, while the 
   mutate(gone.paths, now, (l, emit) => { l.tasks[0]!.run!.worktree = join(gone.dir, 'not-here'); emit({ type: 'task.updated', task: 'ACME-7', actor: 'human', by: 'human:test', data: {} }); });
   refuse(gone, /worktree isn't on disk any more/);
   refuse(setup(), /this isn't a Salesforce project/, { ...sf, profile: 'generic' });
-  refuse(setup({ sessions: null }), /claude agents didn't answer/);
+  refuse(setup({ sessions: null }), /Claude Code's sessions didn't answer/);
   // Two builders already run in a project whose cap is two: going back to running would pass it.
   refuse(setup({ others: 2 }), /can't go back to running: 2 builders are running in this project, and its cap is 2/);
   // A resume under way counts as the builder running.
