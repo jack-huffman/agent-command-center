@@ -70,8 +70,9 @@ async function join(accScript: string, given?: unknown): Promise<void> {
 
 export const area: ExtensionArea = {
   register({ reg, hub, accScript }) {
-    reg(JOIN_COMMAND.id, (given?: unknown) => join(accScript, given));
-    reg(SHARE_JOIN_COMMAND.id, async (arg?: unknown) => {
+    // Named as written, as the areas test reads them: JOIN_COMMAND.id and SHARE_JOIN_COMMAND.id.
+    reg('acc.join', (given?: unknown) => join(accScript, given));
+    reg('acc.join.share', async (arg?: unknown) => {
       const p = (typeof arg === 'string' ? hub.project(arg) : undefined) ?? hub.projects[0];
       const text = p ? joinText(p.config) : null;
       const can = SHARE_JOIN_COMMAND.enabled({ repo: text ? p!.config.github!.repo : null });
