@@ -332,6 +332,8 @@ export const PAGES = [
   'output',
   'setup-first',
   'setup-first-machine',
+  // A clone joined from its repo's address (T-176): only the person's own steps, the team's folded and opened
+  'setup-joined',
   // A project being started, with this machine checked first: one tool missing, one not on PATH (T-133)
   'setup-machine-first',
   // Setup's walkthrough (T-153): a step with two skipped before it, the plugin's step with Show how open, the tracker's step, whose Do it opens a modal, the end with every step skipped, and the start screen with every chapter open

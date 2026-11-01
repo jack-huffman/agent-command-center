@@ -89,3 +89,20 @@ export function setupWalkState(kind: string): { setupWalk: WalkPlace; opened?: s
   if (kind === 'setup-walk-chapters') return { setupWalk: { at: 'start', walk, skipped: ['A1.python'] }, sections: Object.fromEntries(chapters.map((c) => [c.key, true])) };
   return null;
 }
+
+/**
+ * Setup in a clone joined from its repo's address (T-176): Join Acme, with the person's own steps, two still to
+ * do (the plugin and the tracker's sign-in), and the project's own folded under Set up by your team.
+ */
+export function sampleJoinedSetup(): { items: DoctorItem[]; confirmed: Set<string>; setUp: true; joined: string } {
+  const todo: Record<string, Partial<DoctorItem>> = {
+    'A4.plugin': { status: 'fail', detail: 'The plugin isn\'t installed in Claude Code, and its marketplace isn\'t added.', fix: 'claude plugin marketplace add https://github.com/jack-huffman/agent-command-center && claude plugin install acc@agent-command-center --scope user' },
+    'B14.tickets': { status: 'fail', detail: 'Tickets come from Jira ACME on acme.atlassian.net. This repo isn\'t signed in to Jira yet.', fix: 'acc.trackers.signIn' },
+    'B2.identity': { detail: 'Jordan Kim <42+jordan-kim@users.noreply.github.com>, your own, in this clone only' },
+  };
+  const items = STEPS.map((s): DoctorItem => ({ id: s.id, part: s.part, title: s.title, status: 'pass', detail: 'Looks right.', ...todo[s.id] }));
+  return { items, confirmed: new Set(), setUp: true, joined: 'Acme' };
+}
+
+/** Where a joined clone's Setup page starts (T-176): at its start screen, with Set up by your team opened. */
+export const JOINED_SETUP_STATE = { sections: { 'join-team': true } };
