@@ -1,4 +1,4 @@
-## D-T-174 Retry with an agent: a failed or missing deploy to the development org goes back to its builder (2026-11-01)
+## D-251 Retry with an agent: a failed or missing deploy to the development org goes back to its builder (2026-11-01)
 
 T-174. Asked whether a waiver of the deploy gate should let autopilot merge a Salesforce ticket, the person said:
 "If that fails, we should have a way to retry with an agent". So a waiver stays a person's merge (D-244), and a

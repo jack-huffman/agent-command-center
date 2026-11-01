@@ -258,3 +258,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-248](decisions/D-248-the-changes-tab-shows-where-a-ticket-was-deployed-from-its-record.md) | The Changes tab shows where a ticket was deployed from acc's record, and reads an org only when you ask | 2026-10-31 |
 | [D-249](decisions/D-249-discuss-a-ticket.md) | Discuss a ticket: one conversation about the whole ticket, with everything acc knows about it | 2026-10-31 |
 | [D-250](decisions/D-250-a-ticket-s-tabs-are-words-and-its-notices-are-banners.md) | A ticket's tabs are words, Plan is Plan & build, and its notices are banners closed by default | 2026-10-31 |
+| [D-251](decisions/D-251-retry-a-failed-deploy-with-an-agent.md) | Retry with an agent: a failed or missing deploy to the development org goes back to its builder | 2026-11-01 |
