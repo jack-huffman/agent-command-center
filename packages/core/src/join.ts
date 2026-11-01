@@ -10,7 +10,7 @@ import { join as posixJoin, win32 } from 'node:path';
 import { type Config, parseConfig } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import { CLONE_ACCOUNT_KEY, credentialHelper, ghAccounts, JOINED_KEY } from './github.ts';
-import type { TaskCommand } from './task-deploy.ts';
+import type { TaskCommand } from './task-command.ts';
 
 /**
  * The steps that are each person's own in a joined project: the commit identity, the GitHub account and git's
