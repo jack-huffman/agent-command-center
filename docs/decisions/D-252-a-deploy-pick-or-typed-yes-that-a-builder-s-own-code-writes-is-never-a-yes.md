@@ -1,4 +1,4 @@
-## D-T-171 A deploy pick or typed yes that a builder's own code writes is never a yes (2026-10-31)
+## D-252 A deploy pick or typed yes that a builder's own code writes is never a yes (2026-10-31)
 
 T-171. The security review of T-156 (D-239) left a gap: the deploy guide can't write a pick or a typed yes, but a
 builder runs the project's own code (its tests, its build scripts), which runs as the same user as acc and can write

@@ -259,3 +259,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-249](decisions/D-249-discuss-a-ticket.md) | Discuss a ticket: one conversation about the whole ticket, with everything acc knows about it | 2026-10-31 |
 | [D-250](decisions/D-250-a-ticket-s-tabs-are-words-and-its-notices-are-banners.md) | A ticket's tabs are words, Plan is Plan & build, and its notices are banners closed by default | 2026-10-31 |
 | [D-251](decisions/D-251-retry-a-failed-deploy-with-an-agent.md) | Retry with an agent: a failed or missing deploy to the development org goes back to its builder | 2026-11-01 |
+| [D-252](decisions/D-252-a-deploy-pick-or-typed-yes-that-a-builder-s-own-code-writes-is-never-a-yes.md) | A deploy pick or typed yes that a builder's own code writes is never a yes | 2026-10-31 |
