@@ -4062,7 +4062,7 @@ var indentUnit = (text3) => /\n([ \t]+)\S/.exec(text3)?.[1] ?? "  ";
 var shaped = (value, unit, indent) => JSON.stringify(value, null, unit).replace(/\n/g, `
 ${indent}`);
 var inline = (value) => JSON.stringify(value, null, 1).replace(/\n\s*/g, " ");
-var oneLine = (text3, span) => {
+var isOneLine = (text3, span) => {
   const old = text3.slice(span.start, span.end);
   return /^[[{]/.test(old) && !old.includes("\n") && !/^(\[\s*\]|\{\s*\})$/.test(old);
 };
@@ -4108,7 +4108,7 @@ function editAt(text3, path, value, unit) {
     const m = obj.members.filter((x2) => x2.key === key).at(-1);
     const last = depth === path.length - 1;
     if (m && last) {
-      if (value !== void 0) return text3.slice(0, m.value.start) + (oneLine(text3, m.value) ? inline(value) : shaped(value, unit, indentAt(text3, m.keyStart))) + text3.slice(m.value.end);
+      if (value !== void 0) return text3.slice(0, m.value.start) + (isOneLine(text3, m.value) ? inline(value) : shaped(value, unit, indentAt(text3, m.keyStart))) + text3.slice(m.value.end);
       return removeMember(text3, obj, m);
     }
     if (m) {
