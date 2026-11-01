@@ -5,6 +5,31 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.57.0
+
+- Join a team project (D-253). Paste the repo's address in Setup or the Command
+  Palette. The Command Center finds a GitHub account of yours that can read it,
+  clones it to the folder you pick, and sets your commit identity and account in
+  that clone only. Setup then shows only your own steps, such as your GitHub
+  account, your login to each org and the Claude Code plugin. The steps your
+  team already did are under Set up by your team. Settings has Share how to
+  join, which copies the repo's address and three steps, with no name or secret.
+- Retry with an agent (D-251). When a builder's deploy to the development org
+  failed, or never ran, the ticket's Dev row and its banner have Retry with an
+  agent. The builder gets the failed deploy and its reason. A failure outside
+  its work, such as an org that was down, comes back as a blocked note, not a
+  code change. When the retry changes code, the review runs again before the
+  ticket merges.
+- acc signs a deploy pick, a typed yes and a relaxed floor with a key that only
+  your own commands hold (D-252). A builder's tests or build scripts can't write
+  a yes that deploys to Production. A record without a valid signature counts as
+  no record, with a reason. Your steps don't change. The Mac keychain holds
+  the key, or Windows' own protection on Windows.
+- Smaller fixes: the Testing tab no longer repeats its name above its content,
+  and Settings' Pipeline says an agent deploys to Production after you type the
+  org's name. On Windows, the Agents page names a file an agent edited as its
+  session wrote it.
+
 ## 0.56.0
 
 - The Changes tab shows where a ticket's work was deployed from acc's own record
@@ -26,10 +51,6 @@ as the notes.
   banners closed by default, each with a one-line summary (D-250). Open one to
   see its detail. A blocked builder's question shows its options and your own
   words, and Send to its builder gives it the answer.
-- Smaller fixes: the Testing tab no longer repeats its name above its content,
-  and Settings' Pipeline says an agent deploys to Production after you type the
-  org's name.
-
 ## 0.55.0
 
 - A Salesforce ticket's work goes to the development org on its own (D-244).

@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-31**. Version 0.55.0 is
-the latest release (2026-10-30). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`. Version 0.56.0 is prepared and waits on a person
+Where each piece of the build stands, as of **2026-11-01**. Version 0.56.0 is
+the latest release (2026-10-31). 0.41.0 (2026-10-16) was the first with a
+`.sha256` beside its `.vsix`. Version 0.57.0 is prepared and waits on a person
 to release it.
 
 Every bullet below is one status line, in this form:
@@ -206,6 +206,11 @@ where each one's done-when is written out.
   by default**: done. Checked 2026-10-31. Evidence: D-248, D-249, D-250,
   release 0.56.0. Check this org is tried against stand-in Salesforce answers;
   not yet on the pilot.
+- **Join a team project from its repo's address, Retry with an agent on a
+  failed deploy to the development org, and a deploy pick or typed yes signed
+  with the person's key**: done. Checked 2026-11-01. Evidence: D-251, D-252,
+  D-253, release 0.57.0. The tests try Join against stand-in GitHub answers,
+  and Retry against stand-in Salesforce answers. Neither is on the pilot yet.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).
