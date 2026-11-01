@@ -166,7 +166,7 @@ export class RepoIdentity implements vscode.Disposable {
       account: id.account, initials: initials(id.account), from: id.from, projectAccount: id.projectAccount,
       signedIn: id.signedIn, scopes: look.scopes, projects: look.projects, problem: look.problem,
       pushesAs: id.pushesAs, commit: id.commit.name || id.commit.email ? `${id.commit.name ?? '?'} <${id.commit.email ?? '?'}>` : null,
-      profile: `https://github.com/${encodeURIComponent(id.account)}`, others: (id.accounts ?? []).filter((a) => a.login !== id.account).length,
+      profile: `https://github.com/${encodeURIComponent(id.account)}`, others: (id.accounts ?? []).filter((a) => a.login !== id.account).length, joined: !!id.joined,
     };
   }
 }

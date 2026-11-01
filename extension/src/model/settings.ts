@@ -26,6 +26,7 @@ import type { IdentityCard } from './environments.ts';
 import type { AboutModel } from './about.ts';
 import type { LimitsModel } from './limits.ts';
 import { type PipelineProject, pipelineProjects } from './pipeline.ts';
+import { SHARE_JOIN_COMMAND } from './join.ts';
 import { HOME_SECTIONS, type HomeSection, type Look, LOOK, type ModelArea, type ProjectLike, VIEW_TITLES } from './shared.ts';
 
 // ---------------------------------------------------------------- the theme
@@ -444,6 +445,8 @@ export function githubAccount(p: ProjectLike, id: IdentityCard | null): GithubAc
   if (id.signedIn) lines.push(LOOK(`gh is signed in as ${id.account}${id.projects ? '' : ', without GitHub Projects access'}`, 'pass', 'blue'));
   lines.push(id.commit ? LOOK(`Commits as ${id.commit}`, 'git-commit', 'neutral') : LOOK('No commit identity set for this repo', 'warning', 'orange'));
   const actions = [switchTo(null, !!id.problem && id.signedIn)];
+  // Whoever set the project up shares how to join it (T-176); a clone that joined it has nothing to share.
+  if (!id.joined) actions.push(shareJoinAction(p));
   if (!id.signedIn || !id.projects) actions.push({ command: 'acc.github.signIn', label: id.signedIn ? 'Add Projects access' : 'Sign in', icon: 'github', arg: id.account, name: `${id.signedIn ? 'Add Projects access on GitHub for' : 'Sign in to GitHub as'} ${id.account}, for ${p.name}`, primary: !id.signedIn, disabled: null });
   return {
     ...base,
@@ -452,6 +455,11 @@ export function githubAccount(p: ProjectLike, id: IdentityCard | null): GithubAc
     from: id.from === 'clone' ? CLONE : PROJECT, lines, actions,
   };
 }
+
+/** Share how to join (T-176): copies the repo's address and three steps, for a teammate. */
+export const shareJoinAction = (p: { root: string; name: string }): SettingsAction => ({
+  command: SHARE_JOIN_COMMAND.id, label: 'Share how to join', icon: 'copy', arg: p.root, name: `Copy how a teammate joins ${p.name}`, primary: false, disabled: null,
+});
 
 export function githubAccounts(projects: ProjectLike[], identity: (root: string) => IdentityCard | null): GithubAccounts {
   return { projects: projects.map((p) => githubAccount(p, identity(p.root))) };

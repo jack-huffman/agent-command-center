@@ -61,3 +61,6 @@
 /* A step's fix while it runs. */
 .step-run { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 5px 8px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); }
 .step-run-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Join a team project (T-176): offered where no project is set up here. */
+.join-offer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }

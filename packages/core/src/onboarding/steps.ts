@@ -7,6 +7,7 @@ import { type DriftResult, driftReportPath } from '../drift.ts';
 import { parseJsonOutput, type RunResult } from '../exec.ts';
 import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
+import { isJoined } from '../join.ts';
 import { mainCheckout, samePath } from '../paths.ts';
 import { rulesStatus } from '../rules.ts';
 import { readmePlaces } from '../setup.ts';
@@ -583,11 +584,16 @@ export const STEPS: Step[] = [
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
-      const want = ctx.config!.commitIdentity;
-      if (!want) return skip('No commitIdentity in the config.');
       const get = (k: string) => ctx.run('git', ['config', '--local', '--get', k], { cwd: ctx.paths!.root }).stdout.trim();
       const name = get('user.name');
       const email = get('user.email');
+      // A joined clone's commits carry the person's own name, set in that clone only (T-176): the project's is the setter-up's.
+      if (isJoined(ctx.run, ctx.paths!.root)) {
+        return name && email ? pass(`${name} <${email}>, your own, in this clone only`)
+          : fail('This clone has no commit identity of its own yet.', chain(fixShell(ctx), 'git config --local user.name "<your name>"', 'git config --local user.email "<your email>"'));
+      }
+      const want = ctx.config!.commitIdentity;
+      if (!want) return skip('No commitIdentity in the config.');
       if (name === want.name && email === want.email) return pass(`${name} <${email}>`);
       return fail(`Commits would be ${name || '(no name)'} <${email || 'no email'}>, not ${want.name} <${want.email}>.`,
         chain(fixShell(ctx), `git config user.name ${quoteArg(fixShell(ctx))(want.name)}`, `git config user.email ${quoteArg(fixShell(ctx))(want.email)}`));
