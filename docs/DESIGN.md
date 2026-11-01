@@ -1517,7 +1517,7 @@ anything unexpected it prints nothing and exits 0.
 |---|---|---|
 | SessionStart | | Links the session to its task. On a resume or compaction, gives the builder its short instructions again |
 | PreToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit` | Stops a builder editing outside its worktree, editing an environment-specific file, the project's settings under `.acc/`, or the worktree's `.git` (D-206) |
-| PreToolUse | `Bash` | Stops a builder from pushing at all, `gh pr merge`/`create`/`close`, a release (`npm run release`, `gh release create`/`upload`/`edit`/`delete`), a real deploy in any of `sf`'s or `sfdx`'s forms (anything but sf's `--dry-run`, or `--checkonly`/`-c` on sfdx's older deploys; sf's `-c` is `--ignore-conflicts`), acc, sf or git behind a `PATH`, `SF_*`, `SFDX_*`, `GIT_*` or `NODE_OPTIONS` assignment (D-206), deleting an org, `fixes` or `closes` keywords in a commit message, `--no-verify`, switching branch, `git worktree`, `reset --hard`, and the acc commands that are a person's (`set`, `dispatch`, `review`, `land`, `gate waive`, `promote`, `deploy`, `init`, `cleanup`) |
+| PreToolUse | `Bash` | Stops a builder from pushing at all, `gh pr merge`/`create`/`close`, a release (`npm run release`, `gh release create`/`upload`/`edit`/`delete`), a real deploy in any of `sf`'s or `sfdx`'s forms (anything but sf's `--dry-run`, or `--checkonly`/`-c` on sfdx's older deploys; sf's `-c` is `--ignore-conflicts`), acc, sf or git behind a `PATH`, `SF_*`, `SFDX_*`, `GIT_*`, `NODE_OPTIONS`, `ACC_ROLE` or `ACC_PERSON_STORE` assignment (D-206, T-157, T-171), deleting an org, `fixes` or `closes` keywords in a commit message, `--no-verify`, switching branch, `git worktree`, `reset --hard`, and the acc commands that are a person's (`set`, `dispatch`, `review`, `land`, `gate waive`, `promote`, `deploy`, `init`, `cleanup`) |
 | PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|Bash` | Tells a running builder, once a merge, that a teammate's work sharing its files merged into its environment's branch, and that `acc refresh` takes it in (D-198) |
 | Stop | | If a builder's task is still running, reminds it of the finish line, once a session |
 
@@ -1649,7 +1649,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
   with why while its builder runs or with its worktree gone. Then one primary Deploy…, which asks where, from at most three
   environments ahead, each saying what happens next ("An agent deploys it", or
   after you type Production's name); the pick starts the deploy guide's agent
-  there (D-235, T-156). Nothing on the tab deploys by itself. Deploy… is off,
+  there (D-235, T-156). acc signs the pick, and the name you type, with this
+  machine's person key, kept in the system's own secret store, and reads a
+  record without that signature as none (D-T-171). Nothing on the tab deploys by itself. Deploy… is off,
   with why, while the ticket's own checks fail, it conflicts with its
   environment or a deploy is under way. Then what changed: one list
   by type with a count, deletions marked in words, record changes in a short

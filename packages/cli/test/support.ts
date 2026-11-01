@@ -14,6 +14,9 @@ export const REPOS_FILE = join(tempDir('acc-repos-'), 'repos.json');
 // This machine's settings and the repos it counts are the tests' own, so a dispatch here is never noted, or
 // counted, on the machine running them (GH-111).
 export const MACHINE_FILE = join(tempDir('acc-machine-'), 'machine.json');
+// The person's key signs a pick, a typed yes and a relaxed floor (T-171): here a folder of the tests' own, never
+// this machine's keychain or its DPAPI files.
+export const PERSON_STORE = join(tempDir('acc-person-'), 'store');
 
 export interface AccRun {
   code: number;
@@ -31,7 +34,7 @@ export type SpawnOptions = Omit<SpawnSyncOptions, 'cwd' | 'input' | 'env' | 'enc
  * environment by hand.
  */
 export function cli(main: string) {
-  const accEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({ ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ACC_REPOS_FILE: REPOS_FILE, ACC_MACHINE_FILE: MACHINE_FILE, ...env });
+  const accEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({ ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ACC_REPOS_FILE: REPOS_FILE, ACC_MACHINE_FILE: MACHINE_FILE, ACC_PERSON_STORE: PERSON_STORE, ...env });
   const run = (cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv = {}, spawn: SpawnOptions = {}): AccRun => {
     const r = spawnSync(process.execPath, ['--no-warnings', main, ...args], { ...spawn, cwd, input, encoding: 'utf8', env: accEnv(env) });
     return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };

@@ -13,7 +13,8 @@ import { deployGate } from './deploy-gate.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { type Ledger, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { carriesOver, FLOORS_FILE, floorsAt, judgeRatchet, type RatchetFloors, ratchetGate, readFloors, readRelaxed, relaxesFor, withRaises, writeFloors } from './ratchets.ts';
+import { type PersonStore, personStore, verifier } from './person-key.ts';
+import { carriesOver, FLOORS_FILE, floorsAt, judgeRatchet, type RatchetFloors, ratchetGate, readFloors, readRelaxed, relaxesFor, signedRelaxes, withRaises, writeFloors } from './ratchets.ts';
 import { earlierCounts, type GateStatus, ratchetOf, readReceipt, type Receipt, receiptsAt, writeReceipt } from './receipts.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
 import { inShell, shellLine, shownCommand } from './shell.ts';
@@ -607,6 +608,8 @@ export interface GateRunDeps {
    * A person's relax of a floor for it counts here, on its own branch (GH-130).
    */
   task?: string;
+  /** Where the person's key is (T-171), which a relax record must be signed with: this system's store unless a test gives one. */
+  personStore?: PersonStore;
   /** Told before each gate starts, and when a heavy gate has to wait for the machine's slot. */
   onStart?: (gate: Gate) => void;
   onWait?: (gate: Gate) => void;
@@ -732,8 +735,10 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
   input.floors = () => (floors ??= (() => {
     try {
       const on = git(deps.run, root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).stdout.trim() || null;
-      const relaxed = relaxesFor(readRelaxed(paths.relaxed), readLedger(paths.ledger), deps.task, on);
-      return { head: floorsAt(deps.run, root, sha), base: floorsAt(deps.run, root, input.changes.base), relaxed, raise: !!deps.raise && !dirty };
+      // A relax record is the person's only when it's signed with their key (T-171): the rest back nothing, with why.
+      const { backed, refused } = signedRelaxes(readRelaxed(paths.relaxed), () => verifier(deps.personStore ?? personStore(process.env, deps.run)));
+      const relaxed = relaxesFor(backed, readLedger(paths.ledger), deps.task, on);
+      return { head: floorsAt(deps.run, root, sha), base: floorsAt(deps.run, root, input.changes.base), relaxed, refused, raise: !!deps.raise && !dirty };
     } catch (e) {
       return { problem: (e as Error).message };
     }

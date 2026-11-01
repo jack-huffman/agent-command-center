@@ -74,6 +74,7 @@ export * from './outside-kinds.ts';
 export * from './overlap.ts';
 export * from './packet.ts';
 export * from './paths.ts';
+export * from './person-key.ts';
 export * from './pipeline-settings.ts';
 export * from './pipeline.ts';
 export * from './plan-choices.ts';

@@ -8,7 +8,7 @@ import {
   carriesOver, formatFloors, judgeRatchet, mergeFloors, parseFloors, parseNumber, type RatchetFloors, ratchetLine, readFloors, readRatchet, readRelaxed, relaxFloor, withRaises,
 } from '../src/ratchets.ts';
 import { type Receipt, satisfies } from '../src/receipts.ts';
-import { GENERIC_CONFIG, ok, tempDir } from './support.ts';
+import { GENERIC_CONFIG, ok, personKeys, tempDir } from './support.ts';
 
 const TESTS: RatchetSpec = { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' };
 const VIOLATIONS: RatchetSpec = { command: 'sf code-analyzer run', limit: 'ceiling', label: 'violations' };
@@ -124,7 +124,7 @@ test('a person relaxes a floor in a checkout, with a reason: the file says who a
   const floors = join(dir, '.acc', 'floors.json');
   const records = join(dir, 'state', 'relaxed.jsonl');
   const now = () => new Date('2026-10-07T09:00:00Z');
-  const relax = (to: number, reason = 'the slow suite moved to its own job', ratchet = 'tests') => relaxFloor(records, floors, dir, config, { ratchet, to, reason, by: 'human:jordan', now, task: 'GH-5' });
+  const relax = (to: number, reason = 'the slow suite moved to its own job', ratchet = 'tests') => relaxFloor(records, floors, dir, config, { ratchet, to, reason, by: 'human:jordan', now, task: 'GH-5', signer: personKeys().signer });
   assert.throws(() => relax(640), /tests has no floor in .* yet, so there's nothing to relax/);
   mkdirSync(join(dir, '.acc'), { recursive: true });
   writeFileSync(floors, formatFloors({ tests: { floor: 669 } }));
@@ -135,7 +135,8 @@ test('a person relaxes a floor in a checkout, with a reason: the file says who a
   assert.ok(!existsSync(records), 'nothing recorded for a refusal');
 
   const r = relax(640);
-  assert.deepEqual(r, { ratchet: 'tests', limit: 'floor', to: 640, was: 669, by: 'human:jordan', reason: 'the slow suite moved to its own job', at: '2026-10-07T09:00:00.000Z', task: 'GH-5', root: dir });
+  assert.deepEqual(r, { ratchet: 'tests', limit: 'floor', to: 640, was: 669, by: 'human:jordan', reason: 'the slow suite moved to its own job', at: '2026-10-07T09:00:00.000Z', task: 'GH-5', root: dir, sig: r.sig });
+  assert.match(r.sig!, /^[A-Za-z0-9+/]+=*$/, 'signed with the person\'s key (T-171)');
   assert.deepEqual(JSON.parse(readFileSync(floors, 'utf8')), { tests: { floor: 640, relaxed: { by: 'human:jordan', reason: 'the slow suite moved to its own job', at: '2026-10-07T09:00:00.000Z', was: 669 } } });
   assert.deepEqual(readRelaxed(records), [r]);
   const r2 = relax(620, 'and again');

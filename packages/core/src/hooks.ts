@@ -9,8 +9,9 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { commandsOf, expands, rawCommandsOf, stripLeading } from './command-words.ts';
 import { builderGatesFor, fullGates, loadConfig, requiredGates } from './config.ts';
 import { deploysByHand, isSalesforceCli } from './deploy-commands.ts';
-import { deployerTask, keepTypedYes } from './deploy-guide.ts';
+import { DEPLOY_TO_VAR, deployerTask, keepTypedYes } from './deploy-guide.ts';
 import type { Runner } from './exec.ts';
+import { PERSON_STORE_ENV, personStore, signingKey } from './person-key.ts';
 import { readList } from './gates.ts';
 import { NOTE_RULE } from './agent-notes.ts';
 import { DONE_COMMAND, mutate, readLedger, type Task } from './ledger.ts';
@@ -116,9 +117,11 @@ const isAcc = (cmd: string | undefined): boolean => !!cmd && cmd.split('/').pop(
  * An environment variable that changes which acc, sf or git runs, or where it goes (D-206): PATH picks
  * another program by the name; SF_* and SFDX_* point sf at another org or login; GIT_* points git at
  * another repository or runs a program for it; NODE_OPTIONS loads code into acc before it runs; ACC_ROLE
- * is what acc's role checks read, so set by hand it would pass a builder off as a person (T-157).
+ * is what acc's role checks read, so set by hand it would pass a builder off as a person (T-157);
+ * ACC_PERSON_STORE names the store acc reads the person's key from, so set by hand it would make acc
+ * trust a key the builder made, and a relaxed floor or a pick the builder signed (T-171).
  */
-const STEERING = /^(PATH|HOME|SF_\w*|SFDX_\w*|GIT_\w*|NODE_OPTIONS|ACC_ROLE)$/;
+const STEERING = new RegExp(`^(PATH|HOME|SF_\\w*|SFDX_\\w*|GIT_\\w*|NODE_OPTIONS|ACC_ROLE|${PERSON_STORE_ENV})$`);
 /** The programs an assignment steers: acc, by name or path; sf and sfdx; git. */
 const steered = (cmd: string | undefined): string | null => (isAcc(cmd) ? 'acc' : isSalesforceCli(cmd) ? cmd.split('/').pop()! : cmd === 'git' ? 'git' : null);
 /** The names the assignments among a command's own words set: `export PATH=/x`, or `PATH=/x` alone. */
@@ -126,7 +129,7 @@ const assignedIn = (args: string[]): string[] => args.map((a) => /^([A-Za-z_][A-
 
 /**
  * Why a builder may not run this line for what its environment assignments set, or null (D-206): acc,
- * sf or git behind a PATH, SF_*, SFDX_*, GIT_*, NODE_OPTIONS or ACC_ROLE assignment, which the hook can't follow,
+ * sf or git behind a PATH, SF_*, SFDX_*, GIT_*, NODE_OPTIONS, ACC_ROLE or ACC_PERSON_STORE assignment, which the hook can't follow,
  * and the same assigned, or exported, on its own for a later command on the line.
  */
 function guardAssignments(raw: string[][]): string | null {
@@ -138,12 +141,12 @@ function guardAssignments(raw: string[][]): string | null {
     const program = steered(cmd);
     const before = steers(assigned);
     if (program && before.length) {
-      return `Run ${program} plainly, without ${before[0]}= before it: an assignment of PATH, SF_*, GIT_* or NODE_OPTIONS changes which program runs, or where it goes, and ACC_ROLE who acc takes you for, and acc can't see that. Run the command on its own, as it's written in your instructions.`;
+      return `Run ${program} plainly, without ${before[0]}= before it: an assignment of PATH, SF_*, GIT_* or NODE_OPTIONS changes which program runs, or where it goes, and ACC_ROLE who acc takes you for, and ACC_PERSON_STORE whose key acc trusts, and acc can't see that. Run the command on its own, as it's written in your instructions.`;
     }
     // Set for the rest of the line: an assignment alone, or an export, with acc, sf or git after it.
     const kept = !cmd ? before : ['export', 'declare', 'typeset'].includes(cmd ?? '') ? steers(assignedIn(rest)) : [];
     if (kept.length && programs.length) {
-      return `Don't set ${kept[0]} on a line that runs ${programs.join(', ')}: an assignment of PATH, SF_*, GIT_* or NODE_OPTIONS changes which program runs, or where it goes, and ACC_ROLE who acc takes you for, and acc can't see that. Run the command on its own, as it's written in your instructions.`;
+      return `Don't set ${kept[0]} on a line that runs ${programs.join(', ')}: an assignment of PATH, SF_*, GIT_* or NODE_OPTIONS changes which program runs, or where it goes, and ACC_ROLE who acc takes you for, and ACC_PERSON_STORE whose key acc trusts, and acc can't see that. Run the command on its own, as it's written in your instructions.`;
     }
   }
   return null;
@@ -511,7 +514,10 @@ export function userPromptSubmitHook(input: EventInput, ctx: HookContext): Recor
   const task = deployerTask(ctx.env);
   const root = task ? findAccRoot(ctx.cwd) : null;
   if (!task || !root) return null;
-  keepTypedYes(repoPaths(root, ctx.run), task.toUpperCase(), input.prompt ?? '', input.session_id ?? null, ctx.now);
+  // Signed with the person's key, from the system's store (T-171): the hook never makes a key, so on a machine
+  // with none it keeps nothing, and the deploy says why (NO_KEY). This is the one agent process that signs.
+  const signer = signingKey(personStore(ctx.env, ctx.run), ctx.env, { create: false });
+  keepTypedYes(repoPaths(root, ctx.run), task.toUpperCase(), ctx.env[DEPLOY_TO_VAR] ?? '', input.prompt ?? '', input.session_id ?? null, ctx.now, signer);
   return null;
 }
 

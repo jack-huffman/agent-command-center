@@ -11,7 +11,7 @@ import { countsForDone, readReceipt, satisfies, writeReceipt } from '../src/rece
 import { FLOORS_FILE, formatFloors, relaxFloor } from '../src/ratchets.ts';
 import { appendOnlyMerge, CheckFailure, checkCommit, mergeBaseIn, MergeConflict, mergePlace, refresh } from '../src/refresh.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
-import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
+import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, personKeys, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-05T12:00:00Z');
 const BRANCH = 'task/T-1-add-sum';
@@ -370,9 +370,12 @@ test('two tasks that both raised a floor: autopilot keeps the better, and the ch
 
 test('the merge queue\'s merge of the task a person relaxed a floor for still passes; a record for another task backs nothing (GH-130)', () => {
   const ratchet = { config: { gates: { required: ['tests'], ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } } }, files: { '.acc/floors.json': formatFloors({ tests: { floor: 669 } }) } };
+  // The person's key signs each relax (T-171); the queue's check reads it from the store the environment names, as acc does.
+  const keys = personKeys();
+  process.env.ACC_PERSON_STORE = keys.dir;
   const queued = (relaxedFor: string) => {
     const s = setup(ratchet);
-    relaxFloor(s.paths.relaxed, join(s.wt, FLOORS_FILE), s.wt, s.config, { ratchet: 'tests', to: 640, reason: 'the slow suite moved', by: 'human:jordan', now, task: relaxedFor });
+    relaxFloor(s.paths.relaxed, join(s.wt, FLOORS_FILE), s.wt, s.config, { ratchet: 'tests', to: 640, reason: 'the slow suite moved', by: 'human:jordan', now, task: relaxedFor, signer: keys.signer });
     const before = s.onBranch({ 'docs/DECISIONS.md': DECISIONS + BRANCH_ENTRY });
     s.onMain({ 'docs/DECISIONS.md': DECISIONS + MAIN_ENTRY });
     s.opened(before, []);

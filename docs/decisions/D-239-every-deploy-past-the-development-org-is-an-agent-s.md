@@ -68,3 +68,5 @@ the quick deploy of the checked job, the pull request, the records, every guard 
   the pick's file in the refused list), `packages/cli/test/deploy-guide.test.ts` (1 more: the pick kept for any
   environment ahead, replaced by the next, refused for the development environment and for the guide; the yes
   read at the deploy's own step) and `extension/test/deploy-guide.test.ts` (the command with the environment).
+- **Amended by D-T-171** (2026-10-31): the pick and the typed yes are signed with the person's key, kept in the system's
+  own secret store, and a record without that signature, or for another task, environment or chat, reads as none.

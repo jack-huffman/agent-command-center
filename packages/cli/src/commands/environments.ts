@@ -1,7 +1,7 @@
 // acc's Environments commands: promote and deploy.
 
 import { createInterface } from 'node:readline/promises';
-import { AccError, deploy, DEPLOY_TO_VAR, deployerTask, deployGuideLaunch, deployTask, keepPick, lastDeploy, planDeploy, planPromotion, planTaskDeploy, promote, run, skipWarning, type TaskDeployPlan } from '../../../core/src/index.ts';
+import { AccError, deploy, DEPLOY_TO_VAR, deployerTask, deployGuideLaunch, deployTask, keepPick, lastDeploy, personStore, planDeploy, planPromotion, planTaskDeploy, promote, run, signingKey, skipWarning, type TaskDeployPlan } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
 import { accCommand, type CommandArea, now, type Opts, out, personOnly, personOrGuide, project, steps } from '../shared.ts';
 
@@ -150,7 +150,8 @@ function cmdDeployGuide(o: Opts, id: string, envName: string | undefined): numbe
   const by = personOnly(o, 'open a deploy guide');
   const { paths, config } = project(process.cwd());
   const launch = deployGuideLaunch(paths, config, id, envName, undefined, accCommand());
-  const pick = keepPick(paths, id, launch.env[DEPLOY_TO_VAR]!, by, now);
+  // Signed with the person's key (T-171), made here when this machine has none yet: a person's command is the one that may.
+  const pick = keepPick(paths, id, launch.env[DEPLOY_TO_VAR]!, by, launch.sessionId!, now, signingKey(personStore(process.env, run), process.env, { create: true }));
   const env = Object.entries(launch.env).map(([k, v]) => `${k}=${v}`).join(' ');
   out(o, () => `You picked ${pick.env} for ${id}. Run this in ${launch.cwd}, with ${env}:\nclaude ${launch.args.map((a) => JSON.stringify(a)).join(' ')}`, { ...launch, pick });
   return 0;

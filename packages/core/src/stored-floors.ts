@@ -5,7 +5,7 @@
  * task with acc gate relax, which keeps the same record as a ratchet's relax (GH-130).
  */
 import type { Config, RatchetSpec } from './config.ts';
-import { FLOORS_FILE, isWorse, num, type RatchetFloors, relaxedTo, valueOf } from './ratchets.ts';
+import { FLOORS_FILE, isWorse, num, type RatchetFloors, refusedRelaxWords, relaxedTo, valueOf } from './ratchets.ts';
 
 /** A stored floor's name: its check, a dot, and what it counts, as `screenshots.a11y`. */
 const STORED = /^([^.]+)\.(.+)$/;
@@ -32,5 +32,6 @@ export function storedFloorsLowered(check: string, floors: RatchetFloors): strin
     return [head === null ? `drops ${name} (${num(base)})` : `lowers ${name} from ${num(base)} to ${num(head)}`];
   });
   if (!lowered.length) return null;
-  return `${FLOORS_FILE} ${lowered.join(', ')}, and no person relaxed it. Put it back: only a person relaxes a floor, with acc gate relax <name> --to <n> --reason "<why>".`;
+  const refused = Object.keys(floors.base).filter((name) => name.startsWith(`${check}.`)).map((name) => refusedRelaxWords(floors, name)).join('');
+  return `${FLOORS_FILE} ${lowered.join(', ')}, and no person relaxed it.${refused} Put it back: only a person relaxes a floor, with acc gate relax <name> --to <n> --reason "<why>".`;
 }

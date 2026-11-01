@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { formatFloors, type RatchetFloors, readRelaxed, relaxFloor } from '../src/ratchets.ts';
 import { storedFloorsLowered, storedFloorSpec } from '../src/stored-floors.ts';
-import { GENERIC_CONFIG, tempDir } from './support.ts';
+import { GENERIC_CONFIG, personKeys, tempDir } from './support.ts';
 
 const config = parseConfig({ ...GENERIC_CONFIG, gates: { commands: { screenshots: 'node extension/scripts/looked.ts' }, ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } } }).config!;
 const held = (head: Record<string, unknown>, base: Record<string, unknown>, relaxed: RatchetFloors['relaxed'] = []): RatchetFloors => ({ head: head as never, base: base as never, relaxed, raise: false });
@@ -24,7 +24,7 @@ test('a person relaxes a screenshots floor as they do the tests floor: the file 
   const now = () => new Date('2026-10-22T09:00:00Z');
   mkdirSync(join(dir, '.acc'), { recursive: true });
   writeFileSync(floors, formatFloors({ tests: { floor: 669 }, 'screenshots.a11y': { floor: 440596 } }));
-  const relax = (ratchet: string, to: number) => relaxFloor(records, floors, dir, config, { ratchet, to, reason: 'the old Setup page went', by: 'human:jordan', now, task: 'T-7' });
+  const relax = (ratchet: string, to: number) => relaxFloor(records, floors, dir, config, { ratchet, to, reason: 'the old Setup page went', by: 'human:jordan', now, task: 'T-7', signer: personKeys().signer });
   assert.throws(() => relax('screenshots.clipped', 100), /screenshots\.clipped has no floor in .* yet, so there's nothing to relax/, 'an edge case: a stored floor the file doesn\'t keep');
   assert.throws(() => relax('nope.a11y', 100), /No ratchet nope\.a11y\. This project's ratchets: tests, or a check's floor in \.acc\/floors\.json, such as screenshots\.<what>\./);
   assert.throws(() => relax('screenshots.a11y', 450000), /isn't below screenshots\.a11y's floor/);
