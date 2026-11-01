@@ -48,6 +48,8 @@ export interface IdentityCard {
   profile: string;
   /** How many other accounts gh is logged in to, to switch to. */
   others: number;
+  /** This clone was joined from its repo's address (T-176): Share how to join is for whoever set the project up. */
+  joined?: boolean;
 }
 
 // ---------------------------------------------------------------- environments

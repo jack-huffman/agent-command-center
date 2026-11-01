@@ -10,6 +10,7 @@ import { area as environmentSettings } from './environment-settings.ts';
 import { area as environments } from './environments.ts';
 import { area as github } from './github.ts';
 import { area as hooks } from './hooks.ts';
+import { area as join } from './join.ts';
 import { area as manifest } from './manifest.ts';
 import { area as merging } from './merging.ts';
 import { area as pipeline } from './pipeline.ts';
@@ -27,4 +28,4 @@ import { area as updates } from './updates.ts';
 import { area as verify } from './verify.ts';
 import { area as where } from './where.ts';
 
-export const AREAS = [agents, changes, checkTogether, checks, cloud, draft, environmentSettings, environments, github, hooks, manifest, merging, pipeline, plan, rules, saved, setup, ste, tasks, team, tidy, trackers, tracking, updates, verify, where];
+export const AREAS = [agents, changes, checkTogether, checks, cloud, draft, environmentSettings, environments, github, hooks, join, manifest, merging, pipeline, plan, rules, saved, setup, ste, tasks, team, tidy, trackers, tracking, updates, verify, where];

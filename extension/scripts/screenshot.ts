@@ -64,7 +64,7 @@ import { noteInWords } from '../src/logic/relayed.ts';
 import { samplePerTokenSetup, sampleSettingsHub, sampleTrackerBoards } from './fixtures/settings.ts';
 import { sampleStepOf } from './fixtures/agents.ts';
 import { sampleQueueBoards, sampleQueueConnect } from './fixtures/queues.ts';
-import { sampleFirstSetup, sampleSetup, sampleStartingSetup, setupWalkState } from './fixtures/setup.ts';
+import { JOINED_SETUP_STATE, sampleFirstSetup, sampleJoinedSetup, sampleSetup, sampleStartingSetup, setupWalkState } from './fixtures/setup.ts';
 import { sampleSetupWithoutProduction } from './fixtures/no-production.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
@@ -338,6 +338,10 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'setup-first' || kind === 'setup-first-machine') {
     return homeModel({ hub: { ...sampleHub(now), projects: [], agents: [], questions: [] }, section: 'setup', boards: () => [], identity: () => null, setup: sampleFirstSetup(kind === 'setup-first'), runs: [], theme, now });
   }
+  // A clone joined from its repo's address (T-176).
+  if (kind === 'setup-joined') {
+    return homeModel({ hub: sampleHub(now), section: 'setup', boards: () => [], identity: () => sampleIdentity(), setup: sampleJoinedSetup(), runs: [], theme, now });
+  }
   // Settings at How agents run, and Agents, with two projects and agents that would bill per token (GH-110).
   const perToken = kind === 'settings-agents' || kind === 'agents-billing';
   // Agents, on a busy machine: this window's two projects, one with no agents, and repos elsewhere (GH-119), each
@@ -449,6 +453,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : cloudSetupState(kind) ? cloudSetupState(kind)
   // Setup's walkthrough past its start screen (T-153): at a step, with Show how open, at the end.
   : setupWalkState(kind) ? setupWalkState(kind)
+  // Set up by your team, opened, in a joined clone (T-176).
+  : kind === 'setup-joined' ? JOINED_SETUP_STATE
   // A card's actions on the agent board (D-168): its next step full width, and the rest in its ⋯ menu, opened.
   : kind === 'tasks-card-menu' ? { modes: { [ROOT]: 'agents' }, openMenu: `card:${ROOT}#ACME-16` }
   // The palette with nothing typed (T-52) shows what was run last, newest first: a task, a part of Settings, an action and a section.

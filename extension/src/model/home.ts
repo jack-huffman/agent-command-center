@@ -81,7 +81,7 @@ export interface HomeInput {
   boards: (root: string) => BoardInput[];
   identity: (root: string) => IdentityCard | null;
   /** setUp: whether the folder has a .acc/config.json (GH-138); left out, it's taken as set up. */
-  setup: { items: DoctorItem[]; confirmed: Set<string>; setUp?: boolean | null; /** The folder the items were checked in (D-208). */ root?: string | null; /** A project being started (T-133). */ starting?: SetupStarting | null; /** Where the walkthrough was left (T-153). */ walk?: WalkPlace | null };
+  setup: { items: DoctorItem[]; confirmed: Set<string>; setUp?: boolean | null; /** The folder the items were checked in (D-208). */ root?: string | null; /** A project being started (T-133). */ starting?: SetupStarting | null; /** Where the walkthrough was left (T-153). */ walk?: WalkPlace | null; /** The project this clone joined (T-176). */ joined?: string | null };
   runs?: RunInput[];
   /** The edit a task's page holds for an update, unsent, following the drafts it replaced. */
   edited?: (root: string, id: string, replaces: string[]) => string | null;
@@ -156,7 +156,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const agents = agentsModel(hub, i.setup.items, i.whereView ?? 'folder');
   const worktrees = worktreesModel(hub);
   const environments = environmentsModel(hub, i.identity, productionNotHere(i.setup.items, i.setup.root, (path) => hub.projectFor(path)));
-  const setup = setupModel(i.setup.items, i.setup.confirmed, i.setup.setUp ?? true, i.setup.starting ?? null, i.setup.walk ?? null);
+  const setup = setupModel(i.setup.items, i.setup.confirmed, i.setup.setUp === undefined ? true : i.setup.setUp, i.setup.starting ?? null, i.setup.walk ?? null, i.setup.joined ?? null);
   // Limits read every repo's ledger acc noted on this machine, so only while Settings shows (GH-111).
   const limits = i.section === 'settings' ? hub.limits?.() ?? null : null;
   const settings = settingsModel({

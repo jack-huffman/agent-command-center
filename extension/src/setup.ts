@@ -19,6 +19,8 @@ import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
 import { asksProduction, domainItem, productionChoices, productionNext } from './logic/no-production.ts';
 import { MY_DOMAIN } from '../../packages/core/src/sf-discovery.ts';
 import { sourceProblem } from '../../packages/core/src/source.ts';
+import { JOINED_KEY } from '../../packages/core/src/github.ts';
+import { loginEnvironments } from './logic/join.ts';
 import { type AccEnv, type RunResult, runFile } from './run.ts';
 import type { Runs } from './runs.ts';
 import { exec } from './trackers.ts';
@@ -144,6 +146,14 @@ export class Setup implements vscode.Disposable {
   setUp(): boolean | null {
     const file = this.configFile();
     return file ? existsSync(file) : null;
+  }
+
+  /** Whether this clone was joined, as the last check read it (T-176). */
+  private joinedHere = false;
+
+  /** The project this clone joined (T-176): its name, for Setup's "Join <project>"; null where it was set up here. */
+  joined(): string | null {
+    return this.joinedHere ? this.config()?.project ?? null : null;
   }
 
   /** Project checks only run where they mean something: a configured repo or a Salesforce project. */
@@ -290,6 +300,8 @@ export class Setup implements vscode.Disposable {
           const cache = reused ? null : machineCache(machine, profile, this.version, Date.now());
           if (cache) await this.ctx.globalState.update('acc.machineItems', cache);
           const project = this.isProject() ? await this.doctor(['--part', 'project']) : null;
+          // A clone joined from its repo's address (T-176): Setup shows only the person's own steps.
+          this.joinedHere = this.setUp() ? (await runFile('git', ['config', '--local', '--get', JOINED_KEY], this.cwd())).stdout.trim() === 'true' : false;
           await this.applyFull(machine, project);
           this.machineChecked = machine.length > 0;
           const items = [...machine, ...(project ?? [])];
@@ -502,7 +514,8 @@ export class Setup implements vscode.Disposable {
    * Salesforce's login at the URL the environment's name implies (D-015). Nothing to type.
    */
   async sfLogin(): Promise<void> {
-    const envs = (this.config()?.environments ?? []).filter((e) => e.org && e.type !== 'none');
+    // A joined project's Production is someone else's (T-176): its login isn't offered.
+    const envs = loginEnvironments(this.config()?.environments ?? [], this.joinedHere);
     if (!envs.length) {
       void vscode.window.showInformationMessage('No environment in the project\'s settings has an org alias. Do step B1 first.');
       return;

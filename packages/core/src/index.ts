@@ -60,6 +60,7 @@ export * from './hooks.ts';
 export * from './init.ts';
 export * from './intake.ts';
 export * from './jobs.ts';
+export * from './join.ts';
 export * from './land.ts';
 export * from './ledger.ts';
 export * from './limits.ts';

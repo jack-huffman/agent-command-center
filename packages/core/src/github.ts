@@ -8,6 +8,9 @@ import { AccError, type Runner } from './exec.ts';
 
 export const CLONE_ACCOUNT_KEY = 'acc.githubAccount';
 
+/** The clone's own git config key that says it was joined (T-176), not set up here: Setup and Settings read it. */
+export const JOINED_KEY = 'acc.joined';
+
 /** The credential helper acc sets: it asks gh for the token of whichever account this clone uses right now. */
 export const credentialHelper = (fallback: string): string =>
   `!f() { test "$1" = get || exit 0; a=$(git config --get ${CLONE_ACCOUNT_KEY} || echo ${fallback}); echo username=$a; echo "password=$(gh auth token -u $a)"; }; f`;
@@ -77,6 +80,8 @@ export interface GithubIdentity {
   /** The account git push would use. */
   pushesAs: string | null;
   push: ReturnType<typeof pushSetup>['kind'];
+  /** This clone was joined from its repo's address (T-176), not set up here. */
+  joined?: boolean;
 }
 
 export function githubIdentity(config: Config, root: string, run: Runner, env: NodeJS.ProcessEnv = process.env): GithubIdentity | null {
@@ -93,7 +98,7 @@ export function githubIdentity(config: Config, root: string, run: Runner, env: N
     repo: config.github.repo, account, from: mine && mine !== config.github.account ? 'clone' : 'config', projectAccount: config.github.account,
     signedIn: !!accounts?.some((a) => a.login.toLowerCase() === account.toLowerCase()),
     accounts, commit: { name: git('user.name'), email: git('user.email') },
-    pushesAs: push.kind === 'follows' ? account : push.account, push: push.kind,
+    pushesAs: push.kind === 'follows' ? account : push.account, push: push.kind, joined: git(JOINED_KEY) === 'true',
   };
 }
 

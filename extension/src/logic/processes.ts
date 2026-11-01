@@ -146,6 +146,8 @@ export const PROCESSES: readonly Process[] = [
   // GitHub
   { acc: ['github', 'github status'], name: 'Check the GitHub account' },
   { acc: ['github use'], name: 'Switch this repo\'s GitHub account', command: 'acc.github.switch' },
+  // Join a team project (T-176)
+  { acc: ['join'], name: 'Join a team project', command: 'acc.join' },
   // Checks
   { acc: ['gate run'], name: 'Run the checks' },
   { acc: ['gate', 'gate list'], name: 'See the checks' },

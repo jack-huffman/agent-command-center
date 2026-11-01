@@ -16,6 +16,7 @@ import { area as dispatchSheet } from './dispatch-sheet.ts';
 import { area as environments } from './environments.ts';
 import { area as groupCheck } from './group-check.ts';
 import { area as historyPages } from './history-pages.ts';
+import { area as join } from './join.ts';
 import { area as limits } from './limits.ts';
 import { area as manifest } from './manifest.ts';
 import { area as overview } from './overview.ts';
@@ -44,7 +45,7 @@ import { area as updates } from './updates.ts';
 import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agentPage, agents, banners, boards, branches, changesField, cloudSetup, connect, conversation, criteria, deployRetry, dispatchSheet, environments, groupCheck, historyPages, limits, manifest, overview, page, planProgress, plan, questions, recordChanges, report, rules, runs, settings, setupWalk, setup, sheetWording, slack, talk, taskModal, taskPage, taskSheet, tasks, testing, ticketDeploy, tidy, updates, verify, worktrees];
+export const AREAS = [about, agentPage, agents, banners, boards, branches, changesField, cloudSetup, connect, conversation, criteria, deployRetry, dispatchSheet, environments, groupCheck, historyPages, join, limits, manifest, overview, page, planProgress, plan, questions, recordChanges, report, rules, runs, settings, setupWalk, setup, sheetWording, slack, talk, taskModal, taskPage, taskSheet, tasks, testing, ticketDeploy, tidy, updates, verify, worktrees];
 export type Message =
   | import('./agent-page.ts').Message
   | import('./agents.ts').Message

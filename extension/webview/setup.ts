@@ -98,7 +98,7 @@ function startScreen(m: SetupModel, p: WalkPlace | null): HTMLElement {
   const words = !m.chapters.length ? 'Checking this machine and this project…' : left ? `${plural(left, 'thing')} left to do.` : 'Setup is done.';
   const lead = el('h2', 'walk-lead', icon(left || !m.chapters.length ? 'checklist' : 'pass', left ? undefined : 'blue'), words);
   lead.tabIndex = -1;
-  const hero = m.machineFirst ? machineFirstHero(m, m.machineFirst, p, go) : el('div', 'walk-hero', lead, el('div', 'actions', go));
+  const hero = m.machineFirst ? machineFirstHero(m, m.machineFirst, p, go) : el('div', 'walk-hero', lead, el('div', 'actions', go), m.join ? joinOffer(m.join) : null);
   const parts = m.parts.map((part) => {
     const chapters = m.chapters.filter((c) => c.part === part.part);
     if (!chapters.length) return null;
@@ -115,7 +115,7 @@ function startScreen(m: SetupModel, p: WalkPlace | null): HTMLElement {
       return d;
     }));
   });
-  const screen = el('section', 'walk-start', hero, ...parts);
+  const screen = el('section', 'walk-start', hero, ...parts, m.team?.rows.length ? teamFold(m.team) : null);
   // A jump to a part, such as the first open's, shows the start screen where a step's screen is on show.
   screen.addEventListener('reveal', () => {
     screen.hidden = false;
@@ -123,6 +123,28 @@ function startScreen(m: SetupModel, p: WalkPlace | null): HTMLElement {
     if (p) keep({ ...p, at: WALK_START });
   });
   return screen;
+}
+
+/** Where no project is set up here (T-176): a project a team set up already is joined from its repo's address. */
+function joinOffer(a: Action): HTMLElement {
+  return el('div', 'join-offer', el('span', 'muted', 'Joining a project your team set up already?'), actionButton({ ...a, primary: false }));
+}
+
+/**
+ * In a joined clone (T-176), the project's own steps, done by whoever set it up: folded, each with its state, and
+ * outside the walk. They're there to look at, not to do.
+ */
+function teamFold(t: NonNullable<SetupModel['team']>): HTMLElement {
+  const d = el('details', 'chapter join-team') as HTMLDetailsElement;
+  d.open = memory().sections?.['join-team'] ?? false;
+  d.addEventListener('toggle', () => remember((x) => { x.sections = { ...(x.sections ?? {}), 'join-team': d.open }; }));
+  d.append(el('summary', '', el('span', 'tool-chev', icon('chevron-right')), el('span', 'chapter-title', t.title), el('span', 'muted small', plural(t.rows.length, 'step'))),
+    el('ul', 'walk-rows', ...t.rows.map((r) => {
+      const li = el('li', 'walk-row done', status(r.look), titled(el('span', 'walk-row-name', r.title), r.detail));
+      li.dataset.step = r.id;
+      return li;
+    })));
+  return el('div', 'walk-chapters', d);
 }
 
 /** Before a project starts (T-133): what this machine still needs for it, each a click away, then the walk or Go on anyway, and Not now. */

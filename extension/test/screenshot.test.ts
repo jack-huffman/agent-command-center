@@ -222,6 +222,8 @@ test('every section of the page, and a ticket, has sample data built by the real
     }
     // Environments on a machine not logged in to Production (T-125): its Open org and Deploy… off.
     else if (kind === 'environments-away') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.projects[0]!.envs.find((e) => e.type === 'production')!.actions.filter((a) => a.disabled).length], ['home', 'environments', 2]);
+    // A clone joined from its repo's address (T-176): Setup, headed Join Acme, with Set up by your team opened.
+    else if (kind === 'setup-joined') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).setup.parts.at(-1)!.label, !!(m as HomeModel).setup.team?.rows.length, startState(kind)], ['home', 'setup', 'Join Acme', true, { sections: { 'join-team': true } }]);
     else if (kind === 'settings-limits') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.limits?.caps.map((c) => c.value)], ['home', 'settings', ['1', '16', 'None']]);
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }

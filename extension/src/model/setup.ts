@@ -10,6 +10,7 @@ import { KIND_QUESTION, SETUP_PARTS } from '../logic/first-open.ts';
 import { inProcessWords, processLine, toolLineDoes } from '../logic/processes.ts';
 import { type DoctorItem, hasRunnableFix } from '../logic/setup.ts';
 import { REPORT_COMMAND } from './report.ts';
+import { JOIN_ACTION, joinedParts, type SetupTeam } from './join.ts';
 import { type Chapter, setupChapters, type WalkPlace } from './setup-walk.ts';
 import { type Action, type Look, LOOK, type ModelArea, type Ref } from './shared.ts';
 
@@ -82,6 +83,10 @@ export interface SetupModel {
   chapters: Chapter[];
   /** Where the walkthrough was left in this folder, for a tab that doesn't remember it (T-153); null before it starts. */
   walk: WalkPlace | null;
+  /** In a joined clone (T-176), the project's own steps, done by whoever set it up: folded under Set up by your team. */
+  team: SetupTeam | null;
+  /** Join a team project (T-176), where no project is set up here; null in a project. */
+  join: Action | null;
 }
 
 /**
@@ -158,7 +163,7 @@ const upperFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
  * setUp: whether the folder has a .acc/config.json, null with no folder open. Only false asks what kind of project it is.
  * starting: a project being started (T-133), whose machine steps show first. walk: where the walkthrough was left (T-153).
  */
-export function setupModel(items: DoctorItem[], confirmed: Set<string>, setUp: boolean | null = true, starting: SetupStarting | null = null, walk: WalkPlace | null = null): SetupModel {
+export function setupModel(items: DoctorItem[], confirmed: Set<string>, setUp: boolean | null = true, starting: SetupStarting | null = null, walk: WalkPlace | null = null, joined: string | null = null): SetupModel {
   const start = setUp === false ? setupStart() : null;
   const visible = [...items].sort((a, b) => stepOrder(a.id) - stepOrder(b.id));
   const rows = (part: 'machine' | 'project') => visible.filter((i) => i.part === part).map((i): SetupRow => {
@@ -199,13 +204,18 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>, setUp: b
     for (const sec of out) sec.todo = sec.steps.filter((s) => !s.done).length;
     return out;
   };
-  const parts = (['machine', 'project'] as const).map((part) => {
+  const drawn = (['machine', 'project'] as const).map((part) => {
     const steps = rows(part);
     return { part, jump: part === 'machine' ? SETUP_PARTS.machine : SETUP_PARTS.project, label: part === 'machine' ? 'This machine' : 'This project', todo: steps.filter((s) => !s.done).length, steps, sections: sectionsOf(steps) };
   }).filter((p) => p.steps.length || (p.part === 'project' && start));
+  // A clone joined from its repo's address (T-176): only the person's own steps, the team's folded away.
+  const shaped = joined && setUp ? joinedParts(drawn, joined, sectionsOf) : { parts: drawn, team: null };
+  const parts = shaped.parts;
   const all = parts.flatMap((p) => p.steps);
   const first = starting ? machineFirst(starting, parts.find((p) => p.part === 'machine')?.steps ?? []) : null;
-  return { kind: 'setup', done: all.filter((s) => s.done).length, total: all.length, start, machineFirst: first, parts, chapters: setupChapters({ parts, start, machineFirst: first }), walk };
+  // Join a team project is offered wherever no project is set up here: no folder open, or one with no settings.
+  const join = setUp === true ? null : JOIN_ACTION;
+  return { kind: 'setup', done: all.filter((s) => s.done).length, total: all.length, start, machineFirst: first, parts, chapters: setupChapters({ parts, start, machineFirst: first }), walk, team: shaped.team, join };
 }
 
 /** Steps still to do, and those failing. */

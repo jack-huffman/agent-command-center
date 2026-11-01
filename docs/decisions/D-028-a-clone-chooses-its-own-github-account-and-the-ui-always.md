@@ -35,3 +35,5 @@ through VSCode's GitHub sign-in first, then puts gh's active account back.
 
 Commit identity isn't switched along with the account. It's shown beside it,
 and B2.identity checks it.
+
+*Note (2026-11-01): amended by D-T-176. Join a team project sets the account and the commit identity in the new clone only, and a joined clone's commit identity is the person's own, not the project's commitIdentity.*

@@ -190,6 +190,9 @@ test('every control Settings drew before its sections is still drawn, by name, a
     'BUTTON Next steps for QA, in Acme Service: where its work goes next',
     'BUTTON Next steps for Staging, in Acme Portal: where its work goes next',
     'BUTTON Set up cloud builders for Acme Service',
+    // Share how to join, for a project set up in this clone (T-176).
+    'BUTTON Share how to join Acme Portal: copy its address and three steps for a teammate',
+    'BUTTON Share how to join Acme Service: copy its address and three steps for a teammate',
     'SELECT Section of Settings',
   ]);
 });

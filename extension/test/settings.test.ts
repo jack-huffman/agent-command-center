@@ -392,7 +392,8 @@ test('Notices in Slack is Settings\' part now: its card, its badge and its toast
 /** A repo's GitHub identity as Environments' card has it. */
 const identity = (more: Partial<IdentityCard> = {}): IdentityCard => ({
   account: 'jordan-kim', initials: 'JK', from: 'config', projectAccount: 'jordan-kim', signedIn: true, scopes: ['repo', 'project'], projects: true,
-  problem: null, pushesAs: 'jordan-kim', commit: 'Jordan Kim <jordan@acme.example>', profile: 'https://github.com/jordan-kim', others: 1, ...more,
+  // A joined clone, so Share how to join (T-176, extension/test/join.test.ts) stays out of these rows.
+  problem: null, pushesAs: 'jordan-kim', commit: 'Jordan Kim <jordan@acme.example>', profile: 'https://github.com/jordan-kim', others: 1, joined: true, ...more,
 });
 
 test('GitHub accounts names each project, who its repo pushes as, and whether that\'s this clone\'s choice or the project\'s, with an icon and a label', () => {
