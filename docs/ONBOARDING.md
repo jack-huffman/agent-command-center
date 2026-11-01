@@ -279,7 +279,7 @@ in Setup where no project is open, or in the Command Palette. In a terminal:
 `acc join <url> [--dir <path>] [--account <account>]`. It asks for the repo's
 address, picks the GitHub account that can read it (and asks when more than one
 can), clones it under your Documents folder unless you pick another, and sets
-the account and your own commit identity in that clone only (D-T-176). Setup
+the account and your own commit identity in that clone only (D-253). Setup
 then shows only your own steps, under "Join <project>", and folds the project's
 under "Set up by your team". Whoever set the project up finds **Share how to
 join** in Settings, under GitHub accounts: it copies the repo's address and

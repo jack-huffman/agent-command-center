@@ -10,4 +10,4 @@ later. With one source, the three can't disagree.
 The walkthrough moves up to M2. It's the first GUI, and it needs only the
 onboarding checks from M1.
 
-*Note (2026-11-01): amended by D-T-176. In a clone joined from its repo's address, Setup shows only the steps that are each person's own, from the same list, and folds the rest under "Set up by your team".*
+*Note (2026-11-01): amended by D-253. In a clone joined from its repo's address, Setup shows only the steps that are each person's own, from the same list, and folds the rest under "Set up by your team".*

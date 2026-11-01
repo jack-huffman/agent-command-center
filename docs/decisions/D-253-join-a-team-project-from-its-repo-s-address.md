@@ -1,4 +1,4 @@
-## D-T-176 Join a team project from its repo's address, and see only your own setup steps (2026-11-01)
+## D-253 Join a team project from its repo's address, and see only your own setup steps (2026-11-01)
 
 T-176. The person wrote: "we should support starting a project from an existing git repo". In managed services a
 team works from one shared repo, and each teammate needs an easy way in. Before this, a teammate cloned the repo by
