@@ -198,6 +198,12 @@
         "icon": "$(clippy)"
       },
       {
+        "command": "acc.task.retryDeploy",
+        "title": "Retry a Ticket’s Deploy with an Agent",
+        "category": "Agent Command Center",
+        "icon": "$(debug-restart)"
+      },
+      {
         "command": "acc.env.openOrg",
         "title": "Open org",
         "category": "Agent Command Center",
@@ -988,6 +994,10 @@
         },
         {
           "command": "acc.task.deployGuide",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.retryDeploy",
           "when": "false"
         },
         {

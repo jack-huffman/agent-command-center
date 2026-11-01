@@ -1,0 +1,8 @@
+[
+  {
+    "command": "acc.task.retryDeploy",
+    "title": "Retry a Ticket\u2019s Deploy with an Agent",
+    "category": "Agent Command Center",
+    "icon": "$(debug-restart)"
+  }
+]

@@ -240,6 +240,11 @@ export const PAGES = [
   'ticket-deploy-off',
   'ticket-deploy-checking',
   'ticket-deploy-busy',
+  // Retry with an agent (T-174) on Dev's row and in its banner, opened: on after a failed deploy; off while its builder
+  // still works; and off with its worktree gone, after a builder that never deployed
+  'ticket-deploy-retry',
+  'ticket-deploy-retry-off',
+  'ticket-deploy-retry-never',
   // Its Testing tab (T-161): before its builder's deploy to Dev; then built, with Open Dev and the numbered steps; then Open off, with no steps
   'ticket-testing-before',
   'ticket-testing',

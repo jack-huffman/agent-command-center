@@ -51,3 +51,8 @@
 .chg-more-body { margin-top: 8px; }
 /* A long result wraps under its icon rather than pushing the page sideways. */
 .dp-status > .status { white-space: normal; min-width: 0; overflow-wrap: anywhere; }
+
+/* Retry with an agent (T-174): on the development row, the button, then why it's off or why it didn't start. */
+.dp-retry-box { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; min-width: 0; }
+.dp-retry-why, .dp-retry-error { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.banner-body .dp-retry-box { margin-top: 8px; }

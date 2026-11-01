@@ -12,6 +12,7 @@ import type { DeployChoice, DeployPick, EnvRow, TicketDeploy } from '../src/mode
 import { button, el, icon, plural, status, when, work } from './dom.ts';
 import { api, memory, remember, state } from './state.ts';
 import { renderSteps } from './record-changes.ts';
+import { retryControl } from './deploy-retry.ts';
 
 /** The key the tab remembers an open fold by, per ticket: the quiet line's list, More, Deploy…'s pick, and a row's components that differ. */
 export const openKey = (what: 'apart' | 'more' | 'pick' | `differs-${string}`, m: Pick<TicketModel, 'project' | 'key'>): string => `chg-${what}:${m.project}#${m.key}`;
@@ -117,6 +118,8 @@ function renderRow(m: TicketModel, d: TicketDeploy, r: EnvRow): HTMLElement {
   if (r.detail) row.append(el('p', 'muted small dp-detail', r.detail));
   if (r.merged) row.append(el('p', 'small dp-merged', status({ ...r.merged.look, label: r.merged.words })));
   if (r.busy) row.append(el('p', 'small dp-busy', status(r.busy)));
+  // Retry with an agent (T-174), on the development row, where its deploy there failed or never ran.
+  if (m.retry?.branch === r.branch) row.append(retryControl(m, m.retry));
   row.append(...renderCheck(m, r), el('div', 'dp-check', checkButton(m, d, r)));
   return row;
 }

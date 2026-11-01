@@ -141,7 +141,7 @@ export const OUTPUT_RUNS: Partial<Record<Page, RunSample>> = { 'output-running':
 export const OUTPUT_STEPS: Partial<Record<Page, StepSample>> = { 'output-steps-running': 'steps-running', 'output-steps-failed': 'steps-failed', 'output-steps-done': 'steps-done' };
 
 /** The Changes tab's deploy shots (T-138), each named for the sample it draws. */
-const DEPLOY_SHOTS = ['ticket-deploy-before', 'ticket-deploy-work', 'ticket-deploy-deployed', 'ticket-deploy-not', 'ticket-deploy-unknown', 'ticket-deploy-steps', 'ticket-deploy-pick', 'ticket-deploy-pick-off', 'ticket-deploy-off', 'ticket-deploy-checking', 'ticket-deploy-busy'] as const;
+const DEPLOY_SHOTS = ['ticket-deploy-before', 'ticket-deploy-work', 'ticket-deploy-deployed', 'ticket-deploy-not', 'ticket-deploy-unknown', 'ticket-deploy-steps', 'ticket-deploy-pick', 'ticket-deploy-pick-off', 'ticket-deploy-off', 'ticket-deploy-checking', 'ticket-deploy-busy', 'ticket-deploy-retry', 'ticket-deploy-retry-off', 'ticket-deploy-retry-never'] as const;
 
 /** The Testing tab's shots (T-161), by the deploy sample each draws: before its builder's deploy, built, and built with Open off. */
 const TESTING_SHOTS: Partial<Record<Page, DeploySample>> = { 'ticket-testing-before': 'work', 'ticket-testing': 'built', 'ticket-testing-off': 'built-off' };
@@ -472,6 +472,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'ticket-deploy-not' ? { opened: [`chg-differs-hotfix:${ROOT}#ACME-12`] }
   : kind === 'ticket-deploy-steps' ? { opened: [`chg-differs-production:${ROOT}#ACME-12`] }
   : kind === 'ticket-deploy-pick' || kind === 'ticket-deploy-pick-off' ? { opened: [`chg-pick:${ROOT}#ACME-12`] }
+  // Retry with an agent's banner (T-174) opened, so the shot draws the action there as on Dev's row.
+  : kind === 'ticket-deploy-retry' || kind === 'ticket-deploy-retry-off' || kind === 'ticket-deploy-retry-never' ? { opened: [`banner:deploy:${ROOT}#ACME-12`] }
   // A part that moved under the Changes tab's More (T-138), with More open.
   : MORE_OPEN[kind] ? { opened: [`chg-more:${ROOT}#${MORE_OPEN[kind]}`] }
   // ACME-21's plan, criteria and Verify collapsed to their header lines (T-132).

@@ -45,6 +45,7 @@ import type { ManifestActions } from './manifest.ts';
 import { ticketManifest } from './model/manifest.ts';
 import { wordingReply } from './model/sheet-wording.ts';
 import type { DeployActions } from './ticket-deploy.ts';
+import type { RetryActions } from './deploy-retry.ts';
 import type { OrgActions } from './org-open.ts';
 import type { BlockedAnswered } from './model/banners.ts';
 import { testing } from './model/testing.ts';
@@ -171,6 +172,8 @@ export class TicketPanels implements vscode.Disposable {
   manifest: ManifestActions | null = null;
   /** A ticket's deploy (T-138), set by its area: a deploy under way, where its work is, and Deploy…'s pick. */
   deploys: DeployActions | null = null;
+  /** Retry with an agent (T-174), set by its area: the action as the page draws it, and its click. */
+  retry: RetryActions | null = null;
   /** Its development org (T-161), set by its area: whether this machine is logged in to it, and Open. */
   orgs: OrgActions | null = null;
   /** A blocked banner's answer to its builder (T-168), set by its area: null once it's on its way, else why not. */
@@ -491,6 +494,8 @@ export class TicketPanels implements vscode.Disposable {
         failing: deployBlockers(model.acc?.checks ?? []), conflicts: model.acc?.conflicts ? task.environment : null, stepsLeft: openSteps(task).length,
         where: this.deploys.kept(p.root, task.id), reading: (env) => this.deploys!.reading(p.root, task.id, env),
       }) : null,
+      // Retry with an agent (T-174): where its deploy to the development org failed, or never ran.
+      retry: this.retry?.model(p.root, task) ?? null,
       // Its Testing tab (T-161): its development org, and once its builder's deploy there passed, Open and the steps.
       testing: testing(p.config, task, (branch) => this.orgs?.notHere(p.root, branch) ?? false),
       talk,
@@ -628,6 +633,10 @@ export class TicketPanels implements vscode.Disposable {
       // Deploy…'s pick, which starts the deploy guide's agent (T-158), and Check this org (T-167): this page's own task only.
       case 'deploy-guide': case 'where-check':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.deploys?.act(m);
+        return;
+      // Retry with an agent (T-174): this page's own task only.
+      case 'deploy-retry':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) await this.retry?.act(m.project, m.task);
         return;
       // Open <environment>, or a component a step names (T-161): this page's own task only.
       case 'org-open':

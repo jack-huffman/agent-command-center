@@ -85,8 +85,8 @@ export function deployRetryEnabled(s: DeployRetryState): { ok: true } | { ok: fa
   }
   if (s.runs) return { ok: false, why: `${t.id}'s builder is still working on it. Wait for it to finish or block.` };
   if (t.run?.where === 'cloud') return { ok: false, why: `${t.id}'s builder runs in the cloud: answer it on its page on claude.ai.` };
-  if (!t.run?.worktree || !s.worktree) return { ok: false, why: `${t.id}'s worktree isn't on disk any more, so its builder has nowhere to carry on. Dispatch it again.` };
-  if (!t.run.sessionId) return { ok: false, why: `${t.id}'s builder has no conversation to carry on. Dispatch it again.` };
+  if (!t.run?.worktree || !s.worktree) return { ok: false, why: `${t.id}'s worktree isn't on disk any more, so its builder has nowhere to carry on. Build it again.` };
+  if (!t.run.sessionId) return { ok: false, why: `${t.id}'s builder has no conversation to carry on. Build it again.` };
   return { ok: true };
 }
 

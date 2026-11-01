@@ -15,7 +15,7 @@ import { builderRuns, DEPLOY_RETRY_COMMAND, DEPLOY_RETRY_LABEL, deployRetryCase,
 import { run, type RunResult } from '../src/exec.ts';
 import { type ClaudeSession, type LedgerEvent, mutate, readLedger, type State, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
-import { type Launcher, resume, resumingPath } from '../src/resume.ts';
+import { type Launcher, resume, RESUME_MOVES_FROM, resumingPath, retryMoveProblems } from '../src/resume.ts';
 import { transcriptDir } from '../src/transcript.ts';
 import { bad, fakeAwake, fakeRunner, GENERIC_CONFIG, gh41Lines, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
@@ -58,8 +58,8 @@ test('edge cases with nothing to retry: a generic project, no task, no work, a m
 test('the action is off with a reason while the builder runs, with no worktree, and on a generic project; on otherwise', () => {
   assert.deepEqual(on(task()), { ok: true });
   assert.deepEqual(on(task(), { runs: true }), { ok: false, why: 'ACME-7\'s builder is still working on it. Wait for it to finish or block.' });
-  assert.deepEqual(on(task(), { worktree: false }), { ok: false, why: 'ACME-7\'s worktree isn\'t on disk any more, so its builder has nowhere to carry on. Dispatch it again.' });
-  assert.deepEqual(on(task({ run: { branch: 'b', sessionId: SID } as Task['run'] })), { ok: false, why: 'ACME-7\'s worktree isn\'t on disk any more, so its builder has nowhere to carry on. Dispatch it again.' }, 'no worktree recorded');
+  assert.deepEqual(on(task(), { worktree: false }), { ok: false, why: 'ACME-7\'s worktree isn\'t on disk any more, so its builder has nowhere to carry on. Build it again.' });
+  assert.deepEqual(on(task({ run: { branch: 'b', sessionId: SID } as Task['run'] })), { ok: false, why: 'ACME-7\'s worktree isn\'t on disk any more, so its builder has nowhere to carry on. Build it again.' }, 'no worktree recorded');
   assert.deepEqual(on(task(), { config: generic }), { ok: false, why: 'A retry deploys Salesforce components to the development org, and this isn\'t a Salesforce project.' });
   assert.match((on(task({ run: { branch: 'b', worktree: '/wt', where: 'cloud', sessionId: SID } as Task['run'] })) as { why: string }).why, /runs in the cloud/);
   assert.match((on(task({ run: { branch: 'b', worktree: '/wt' } as Task['run'] })) as { why: string }).why, /no conversation to carry on/);
@@ -201,4 +201,18 @@ test('a plain resume still refuses a blocked task: only a retry moves it back to
   const s = setup();
   assert.throws(() => resume(s.paths, sf, 'ACME-7', s.deps, by), /ACME-7 is blocked\. Only a running task's builder is resumed\./);
   assert.equal(s.launched.length, 0);
+});
+
+test('the move back to running is checked as a rework\'s restart: from blocked or review only; edge cases: running needs none, and a protected environment or the cap refuses', () => {
+  assert.deepEqual(RESUME_MOVES_FROM, ['blocked', 'review']);
+  const s = setup({ others: 1 });
+  const l = readLedger(s.paths.ledger);
+  const t = l.tasks[0]!;
+  const req = { actor: 'human' as const, by: 'human:jordan-kim', reason: 'Retry' };
+  assert.deepEqual(retryMoveProblems(l, sf, t, req), [], 'one builder runs and the cap is two');
+  assert.deepEqual(retryMoveProblems(l, sf, { ...t, state: 'running' }, req), [], 'a running task needs no move');
+  assert.deepEqual(retryMoveProblems(l, sf, { ...t, state: 'todo' }, req), ['ACME-7 is todo. A retry carries on a builder that is running, blocked or in review.']);
+  assert.match(retryMoveProblems(l, { ...sf, agents: { ...sf.agents, max: 1 } }, t, req).join(' '), /1 builder is running in this project, and its cap is 1/);
+  const guarded: Config = { ...sf, environments: sf.environments.map((e) => (e.branch === 'dev' ? { ...e, protected: true } : e)) };
+  assert.match(retryMoveProblems(l, guarded, t, req).join(' '), /"Dev" is protected\. Agents never work on it directly\./);
 });

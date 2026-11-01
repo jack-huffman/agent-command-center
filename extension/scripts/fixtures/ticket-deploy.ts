@@ -10,6 +10,9 @@
  * Its Testing tab (T-161): before its builder's deploy to Dev (work); built, in review with that deploy passed, so the
  * tab opens Dev and numbers its builder's steps, three of them with a link to the one component each names; built-off:
  * this machine isn't logged in to acme-dev, and its builder gave no steps.
+ * Retry with an agent (T-174) on Dev's row and in its banner, opened: blocked after its builder's deploy to Dev failed
+ * on a lock (retry, on); running with that failure while its builder still works (retry-off, off with why); and blocked
+ * before its builder ever deployed, its worktree gone (retry-never, off with why).
  */
 import { openSteps } from '../../../packages/core/src/change-steps.ts';
 import type { Environment } from '../../../packages/core/src/config.ts';
@@ -21,11 +24,12 @@ import { ticketChanges } from '../../src/model/changes.ts';
 import { ticketRecords } from '../../src/model/record-changes.ts';
 import type { TicketModel } from '../../src/model/task-page.ts';
 import { deployBlockers, ticketDeploy } from '../../src/model/ticket-deploy.ts';
+import { deployRetry } from '../../src/model/deploy-retry.ts';
 import { testing } from '../../src/model/testing.ts';
 import { MIN, ROOT } from './shared.ts';
 import { sampleTicket } from './task-page.ts';
 
-export type DeploySample = 'before' | 'work' | 'deployed' | 'not' | 'unknown' | 'steps' | 'pick' | 'pick-off' | 'off' | 'checking' | 'busy' | 'built' | 'built-off';
+export type DeploySample = 'before' | 'work' | 'deployed' | 'not' | 'unknown' | 'steps' | 'pick' | 'pick-off' | 'off' | 'checking' | 'busy' | 'built' | 'built-off' | 'retry' | 'retry-off' | 'retry-never';
 
 const D = 'force-app/main/default';
 const env = (name: string, promotesTo: string[], more: Partial<Environment> = {}): Environment => ({ name, branch: name.toLowerCase(), type: 'sandbox' as Environment['type'], org: `acme-${name.toLowerCase()}`, default: false, protected: false, promotesTo, ...more });
@@ -54,7 +58,8 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   const at = (min: number) => new Date(now - min * MIN).toISOString();
   const m = sampleTicket(now);
   const built = which === 'built' || which === 'built-off';
-  const deployedOnce = which !== 'before' && which !== 'work' && !built;
+  const retry = which === 'retry' || which === 'retry-off' || which === 'retry-never';
+  const deployedOnce = which !== 'before' && which !== 'work' && !built && !retry;
   const inUat = which === 'steps';
   const promotions = [
     ...(deployedOnce ? [{ from: 'dev', to: 'qa', pr: { number: 61, url: 'https://github.com/acme/service/pull/61' }, state: 'merged' as const, at: at(180), mergedAt: at(178) }] : []),
@@ -80,12 +85,14 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   };
   const task = {
     id: 'ACME-12', title: m.title, brief: '', source: { kind: 'jira', key: 'ACME-12', url: null }, environment: 'dev', deps: [], labels: [],
-    state: which === 'before' ? 'todo' : which === 'work' || built ? 'review' : 'done', blocker: null,
-    run: which === 'before' ? null : { branch: 'task/ACME-12-premium-escalation', ...(built ? { note: { landed: ['Cases route by tier.'], moved: [], open: [], at: at(30), by: 'builder:ACME-12', ended: 'review', ...(which === 'built' ? { test: BUILT_STEPS } : {}) } } : {}) },
+    state: which === 'before' ? 'todo' : which === 'work' || built ? 'review' : which === 'retry-off' ? 'running' : retry ? 'blocked' : 'done', blocker: null,
+    run: which === 'before' ? null : { branch: 'task/ACME-12-premium-escalation', ...(retry ? { worktree: `${ROOT}/.claude/worktrees/ACME-12`, sessionId: 'b5e1f0c2-3d4a-4b6c-8e9f-0a1b2c3d4e5f' } : {}),...(built ? { note: { landed: ['Cases route by tier.'], moved: [], open: [], at: at(30), by: 'builder:ACME-12', ended: 'review', ...(which === 'built' ? { test: BUILT_STEPS } : {}) } } : {}) },
     pr: deployedOnce ? { number: 58, url: 'u', state: 'merged' } : which === 'work' || built ? { number: 58, url: 'u', state: 'open' } : null,
     history: [], createdAt: at(600), updatedAt: at(20), promotions, outside,
     // The deploy guide's deploy to UAT failed (T-167), so its row says so, and why.
-    deployFailures: deployedOnce && !inUat ? [{ env: 'uat', org: 'acme-uat', at: at(50), reason: 'The deploy to acme-uat failed (job 0Af7), 1 problem: force-app/main/default/classes/CaseRouting.cls:12: Variable does not exist: Tier__c', by: 'human:jordan', checkId: '0AfU' }] : [],
+    deployFailures: deployedOnce && !inUat ? [{ env: 'uat', org: 'acme-uat', at: at(50), reason: 'The deploy to acme-uat failed (job 0Af7), 1 problem: force-app/main/default/classes/CaseRouting.cls:12: Variable does not exist: Tier__c', by: 'human:jordan', checkId: '0AfU' }]
+      // Its builder's deploy to Dev failed on a lock another deploy held (T-174): the org's doing, not its work's.
+      : which === 'retry' || which === 'retry-off' ? [{ env: 'dev', org: 'acme-dev', at: at(40), reason: 'The deploy to acme-dev failed (job 0Af4), 1 problem: unable to obtain exclusive access to this record: another deploy is in progress' }] : [],
     deploys: deployedOnce ? [
       ...(inUat ? [] : [{ env: 'dev', org: 'acme-dev', sha: 'b4d2c0f', at: at(200), jobId: null, paths: [], components: [], verified: 0, tests: null }]),
       { env: 'qa', org: 'acme-qa', sha: 'b4d2c0f', at: at(178), jobId: '0Af9', paths: [], components: [], verified: 5, tests: null, by: 'human:jordan', checkId: '0AfQ', pr: { number: 61, url: 'https://github.com/acme/service/pull/61' } },
@@ -122,6 +129,7 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   return {
     ...m, acc, project: ROOT, changes, records,
     testing: testing(config, task, (b) => which === 'built-off' && b === 'dev'),
+    retry: deployRetry({ config, task, runs: which === 'retry-off', worktree: which !== 'retry-never' }),
     deploy: ticketDeploy({
       config, task: which === 'off' ? { ...task, deps: ['ACME-3'] } : task, tasks: which === 'off' ? [task, dep] : [task], deploying: which === 'busy' ? 'uat' : null,
       failing: deployBlockers(acc?.checks ?? []), conflicts: acc?.conflicts ? 'dev' : null, stepsLeft: openSteps(task).length, where, reading: (b) => which === 'checking' && b === 'qa',
