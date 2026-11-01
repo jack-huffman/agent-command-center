@@ -78,15 +78,20 @@ person's steps don't change: no new prompt, no new click. Everything else D-235 
   `ACC_TASK`, `ACC_DEPLOY_TO`). `signingKey` refuses a builder, a reviewer and an analyst by role, whatever they
   claim. The hook signs as a child of the guide's Claude Code, which can't run it (`acc hook` is denied, and the
   guard refuses the word). A test pins which modules call `signingKey` and which name the private item, so a
-  launch that handed the key on would have to name one of them.
+  launch that handed the key on would have to name one of them. A builder's guard refuses `ACC_PERSON_STORE`
+  before acc, sf or git, set alone or exported on the line, as it refuses `PATH` and `ACC_ROLE` (D-206, T-157):
+  set by hand, `acc gate run` would read a key the builder made, and trust a relaxed floor or a pick the builder
+  signed with it. The test starts a builder, a resumed builder, a reviewer and an analyst as acc does, and
+  reads each one's environment; the deploy guide's is pinned whole in its own test.
 - **Not covered:**
   - A process of the same user that reads the store: `security` on a Mac while the keychain is unlocked, DPAPI
     on Windows while the user is logged in. It can sign a forged record as the person, and it could replace the
     key, after which the person's own records fail to verify until a person's command signs with the new one.
   - A process that starts acc itself as the deployer, with an environment of its choosing (`ACC_ROLE`,
     `ACC_PERSON_STORE`, a store of its own): acc trusts the environment it was started with, as before this
-    change. Closing that needs the deploy to run in a process a person started, such as the Command Center; a
-    later task.
+    change. The guard stops a builder typing either into a command; it can't read what a test file or a build
+    script does when it runs. Closing that needs the deploy to run in a process a person started, such as the
+    Command Center; a later task.
   - The pick's `used` mark isn't signed: a process that clears it lets a sandbox deploy go again on the same
     pick within its 15 minutes, with the person approving the guide's command in the chat as before. For
     production the typed name is used up, and can't be made again.
@@ -98,8 +103,10 @@ person's steps don't change: no new prompt, no new click. Everything else D-235 
 - **Checked by** `packages/core/test/person-key.test.ts` (9: each store's round trip, the real store under a
   test's own name on this system, `security` with the value on stdin, PowerShell with the value in its
   environment and the file renamed into place, which store each system gets, the pair made once by a person's
-  command and never by the hook, the roles that never sign, what a signature covers, and no agent's
-  environment holding the key with the signers pinned), `packages/core/test/deploy-pick.test.ts` (3 more: an
+  command and never by the hook, the roles that never sign, what a signature covers, and no builder's,
+  resumed builder's, reviewer's or analyst's environment holding the key, with the signers pinned),
+  `packages/core/test/hooks.test.ts` (`ACC_PERSON_STORE` refused before acc, set alone and exported, in the
+  steering test), `packages/core/test/deploy-pick.test.ts` (3 more: an
   unsigned pick, another key, a changed field and a machine with no key; a yes from another chat or
   environment; a mutant that accepts an unsigned pick, caught), `packages/core/test/deploy-guide.test.ts` (2
   more: an unsigned, forged or re-keyed yes, and a yes for another environment or chat; the hook test now

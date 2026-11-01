@@ -8,14 +8,18 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { analystEnv } from '../src/analyze.ts';
-import { parseConfig } from '../src/config.ts';
-import { run } from '../src/exec.ts';
+import { parseConfig, type Config } from '../src/config.ts';
+import { run, type RunOptions } from '../src/exec.ts';
+import { runGates } from '../src/gates.ts';
+import { mutate, upsertTasks } from '../src/ledger.ts';
 import { builderSettings } from '../src/packet.ts';
+import { repoPaths } from '../src/paths.ts';
+import { review } from '../src/review.ts';
 import {
   asClause, canonical, DPAPI_READ, DPAPI_WRITE, dpapiStore, folderStore, keychainStore, NEVER_SIGN, newKeyPair, NO_KEY, PERSON_KEY_SERVICE, PERSON_STORE_ENV, personKeyFolder, personStore, type PersonStore, PRIVATE_ITEM, PUBLIC_ITEM, signedBody, signingKey, verifier,
 } from '../src/person-key.ts';
 import { resumeCommand } from '../src/resume.ts';
-import { fakeRunner, GENERIC_CONFIG, ok, personKeys, SF_CONFIG, tempDir } from './support.ts';
+import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, personKeys, SF_CONFIG, tempDir } from './support.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 const body = { v: 2, task: 'ACME-1', env: 'uat' };
@@ -190,16 +194,46 @@ test('a signature covers the record\'s kind and its fields in order: a signed pi
   assert.equal(verifier(broken).verify('deploy-pick', body, sig), NO_KEY, 'edge case: a public item that isn\'t a key reads as no key');
 });
 
+/** The environment a reviewer is started with: a repo with one task in review, its check passed, and claude a fake that keeps what it was given. */
+function reviewerEnv(outer: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const raw = { ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'true' } }, strayFiles: { required: false } };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(raw) });
+  const config = parseConfig(raw).config as Config;
+  const base = gitIn(dir, 'branch', '--show-current').trim();
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1-a');
+  writeFileSync(join(dir, 'a.js'), 'export const a = 1;\n');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-q', '-m', 'T-1: a');
+  const paths = repoPaths(dir, run);
+  const now = () => new Date('2026-11-01T12:00:00Z');
+  mutate(paths, now, (l, emit) => {
+    upsertTasks(l, config, [{ source: { kind: 'manual', key: 'T-1' }, title: 'A thing', brief: '- a is 1' }], 'human', 'human:test', emit, now);
+    const t = l.tasks[0]!;
+    t.state = 'review' as never;
+    t.environment = base;
+    t.run = { branch: 'task/T-1-a', worktree: dir };
+  });
+  runGates(paths, config, config.environments[0]!, [], [], { run, now, slots: { dir: join(dir, '.git', 'slots') } });
+  let given: RunOptions | undefined;
+  const pass = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 's', structured_output: { verdict: 'pass', summary: 'Adds a.', criteria: [], findings: [] } });
+  review(paths, config, 'T-1', { run: fakeRunner({ claude: (opts) => { given = opts; return ok(pass); } }), now, env: outer });
+  assert.ok(given, 'the reviewer was started');
+  return given!.env as Record<string, string | undefined>;
+}
+
 test('no builder, reviewer, analyst or deploy guide holds the key in its environment, and only a person\'s command and the guide chat\'s hook read the private half', () => {
   const keys = personKeys();
   const priv = keys.store.read(PRIVATE_ITEM)!;
   const c = parseConfig(GENERIC_CONFIG).config!;
   const sf = parseConfig(SF_CONFIG).config!;
   const task = { id: 'T-1', title: 'A thing', state: 'running', environment: 'main', deps: [], run: { branch: 'task/T-1' } } as never;
+  // The outer environment a person's acc runs in, with the store named as tests and CI name it: nothing in it is the key.
+  const outer = { PATH: '/bin', [PERSON_STORE_ENV]: keys.dir };
   const envs: Record<string, Record<string, string | undefined>> = {
     builder: (builderSettings(task, c, '/acc/bin', '/usr/bin') as { env: Record<string, string> }).env,
     resumed: resumeCommand(task, c, { sessionId: 's', message: 'Carry on.', accBinDir: '/acc/bin', basePath: '/usr/bin' }).env,
-    analyst: analystEnv(sf, { PATH: '/bin', [PERSON_STORE_ENV]: keys.dir }, 'T-1') as Record<string, string | undefined>,
+    reviewer: reviewerEnv(outer),
+    analyst: analystEnv(sf, outer, 'T-1') as Record<string, string | undefined>,
   };
   // The deploy guide's environment is pinned whole in task-deploy.test.ts: ACC_ROLE, ACC_TASK and ACC_DEPLOY_TO alone.
   for (const [who, env] of Object.entries(envs)) {
@@ -210,6 +244,7 @@ test('no builder, reviewer, analyst or deploy guide holds the key in its environ
   }
   assert.ok(Object.keys(envs.builder!).every((k) => ['ACC_TASK', 'ACC_ROLE', 'PATH'].includes(k)), `a builder's environment is its task, its role and its PATH: ${Object.keys(envs.builder!).join(', ')}`);
   assert.deepEqual(Object.keys(envs.resumed!), ['ACC_ROLE', 'ACC_TASK']);
+  assert.deepEqual(envs.reviewer, { ...outer, ACC_ROLE: 'reviewer', ACC_TASK: 'T-1' }, 'a reviewer\'s environment is the outer one, its role and its task: the store\'s name, never the key, and it has no shell to read the store with');
   // Who reads the private half: the modules a person's command runs, and the hook. A launch that handed the key on would have to name one of these.
   const sources = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ':(glob)packages/*/src/**/*.ts', ':(glob)extension/src/**/*.ts'], { cwd: ROOT, encoding: 'utf8' }).split('\0').filter(Boolean);
   assert.ok(sources.length > 100, `sources: ${sources.length}`);

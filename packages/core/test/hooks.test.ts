@@ -97,7 +97,7 @@ test('commands are read through quotes, chains and wrappers, the way the shell w
   assert.deepEqual(commandsOf('(cd x; git push)'), [['cd', 'x'], ['git', 'push']]);
 });
 
-test('acc, sf or git behind a PATH, SF_*, GIT_* or NODE_OPTIONS assignment is refused, as is one set alone or exported for them on the line; an assignment that steers nothing isn\'t (D-206)', () => {
+test('acc, sf or git behind a PATH, SF_*, GIT_*, NODE_OPTIONS, ACC_ROLE or ACC_PERSON_STORE assignment is refused, as is one set alone or exported for them on the line; an assignment that steers nothing isn\'t (D-206)', () => {
   const b = { task: { id: 'T-1', run: { branch: 'task/T-1-a' } } } as never;
   // Before the command, in each form the shell takes: a wrapper between, a path to acc, sfdx, a chain.
   for (const [line, program, name] of [
@@ -113,12 +113,18 @@ test('acc, sf or git behind a PATH, SF_*, GIT_* or NODE_OPTIONS assignment is re
     // ACC_ROLE is what acc's role checks read (T-157): set by hand, a builder would pass as a person.
     ['ACC_ROLE=person acc environments development Dev', 'acc', 'ACC_ROLE'],
     ['ACC_ROLE= /opt/acc/bin/acc agents auto-merge off', 'acc', 'ACC_ROLE'],
+    // ACC_PERSON_STORE names the store acc reads the person's key from (T-171): set by hand, acc gate run would trust a
+    // relaxed floor the builder signed with a key of its own.
+    ['ACC_PERSON_STORE=/tmp/x acc gate run', 'acc', 'ACC_PERSON_STORE'],
+    ['env ACC_PERSON_STORE=/tmp/x nice -n 15 /opt/acc/bin/acc gate run', 'acc', 'ACC_PERSON_STORE'],
   ] as const) {
     assert.match(guardBash(b, line)!, new RegExp(`^Run ${program} plainly, without ${name}= before it: an assignment of PATH, SF_\\*, GIT_\\* or NODE_OPTIONS changes which program runs, or where it goes, and ACC_ROLE who acc takes you for`), line);
   }
   // Set alone, or exported, and used by a later command on the line.
   assert.match(guardBash(b, 'PATH=/tmp/bin; acc gate run deploy')!, /^Don't set PATH on a line that runs acc:/);
   assert.match(guardBash(b, 'export ACC_ROLE=person; acc environments next Dev UAT')!, /^Don't set ACC_ROLE on a line that runs acc:/);
+  assert.match(guardBash(b, 'export ACC_PERSON_STORE=/tmp/x; acc gate run')!, /^Don't set ACC_PERSON_STORE on a line that runs acc: .*ACC_PERSON_STORE whose key acc trusts/);
+  assert.match(guardBash(b, 'ACC_PERSON_STORE=/tmp/x\nacc gate run')!, /^Don't set ACC_PERSON_STORE on a line that runs acc:/);
   assert.match(guardBash(b, 'export SF_TARGET_ORG=prod && sf project retrieve start')!, /^Don't set SF_TARGET_ORG on a line that runs sf:/);
   assert.match(guardBash(b, 'export GIT_DIR=/x NODE_OPTIONS=y\ngit status; acc team')!, /^Don't set GIT_DIR on a line that runs git, acc:/);
   // An assignment that steers nothing, one before a program these rules don't guard, and a set with no such command after it.
