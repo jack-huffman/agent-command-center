@@ -133,7 +133,7 @@ const shaped = (value: unknown, unit: string, indent: string): string => JSON.st
 const inline = (value: unknown): string => JSON.stringify(value, null, 1).replace(/\n\s*/g, ' ');
 
 /** A list or object that was on one line, with something in it, stays on one line. */
-const oneLine = (text: string, span: Span): boolean => {
+const isOneLine = (text: string, span: Span): boolean => {
   const old = text.slice(span.start, span.end);
   return /^[[{]/.test(old) && !old.includes('\n') && !/^(\[\s*\]|\{\s*\})$/.test(old);
 };
@@ -191,7 +191,7 @@ function editAt(text: string, path: string[], value: unknown, unit: string): str
     const m = obj.members.filter((x) => x.key === key).at(-1);
     const last = depth === path.length - 1;
     if (m && last) {
-      if (value !== undefined) return text.slice(0, m.value.start) + (oneLine(text, m.value) ? inline(value) : shaped(value, unit, indentAt(text, m.keyStart))) + text.slice(m.value.end);
+      if (value !== undefined) return text.slice(0, m.value.start) + (isOneLine(text, m.value) ? inline(value) : shaped(value, unit, indentAt(text, m.keyStart))) + text.slice(m.value.end);
       return removeMember(text, obj, m);
     }
     if (m) {

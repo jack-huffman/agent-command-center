@@ -343,7 +343,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   const site = s.host && !s.hostError ? s.host : `this ${d.host.label.toLowerCase()}`;
   const scope = s.signIn.shared === undefined ? '' : `, ${signInScope(s.signIn.shared, site)}`;
   const look: Look = testing ? LOOK(method.via === 'microsoft' ? 'Waiting for the Microsoft sign-in' : 'Testing the connection', 'sync~spin', 'blue')
-    : ok ? LOOK(`Signed in as ${s.signIn.who}${scope}`, 'pass', 'blue')
+    : ok ? { ...LOOK(`Signed in as ${s.signIn.who}${scope}`, 'pass', 'blue'), state: 'signed-in' }
       : s.signIn.state === 'failed' ? LOOK(s.signIn.error ?? 'Not signed in', 'warning', 'orange')
         : LOOK(method.via === 'gh' && s.ghAccount ? `Signs in as ${s.ghAccount}` : 'Not signed in yet', 'circle-large-outline', 'neutral');
   const pickers: ConnectPicker[] = d.pickers.filter((p) => keyShown(`trackers[].${p.key}` as ConfigPath, unread)).map((p) => {

@@ -3,6 +3,7 @@
 // a blocked note's question as a choice of three at most and own words, whose Send gives the answer to the blocked
 // builder and then says it went. Drawn in page-dom.ts's small document; at each width and theme, the screenshot run's.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { TicketModel } from '../src/model/task-page.ts';
 import { ANSWER_MAX, answerSession, area as bannersArea, blockedReply, REPLY_CLOUD, REPLY_NO_SESSION, sharedFiles } from '../src/model/banners.ts';
@@ -204,6 +205,7 @@ test('sending a choice gives the answer to the blocked builder, says it\'s on it
 test('edge case: an answer in own words longer than ANSWER_MAX is cut to it when the page sends it, and the extension takes what was sent (T-170)', () => {
   fresh();
   assert.equal(ANSWER_MAX, 4000, 'the limit the message check holds, which the page\'s own copy must match');
+  assert.equal(Number(/^const ANSWER_MAX = (\d+);$/m.exec(readFileSync(new URL('../webview/banners.ts', import.meta.url), 'utf8'))?.[1]), ANSWER_MAX, 'the page\'s own copy, which it can\'t import (D-121), is the same');
   const b = byId(drawn(), 'blocked');
   const words = b.all('text-input')[0]! as PageElement & { value: string };
   words.value = 'y'.repeat(ANSWER_MAX * 3);
