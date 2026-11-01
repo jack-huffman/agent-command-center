@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, AGENTS_MODEL_COMMAND, BLOCK_SHAPE, composeNote, doneLines, noteLines, noteWording, noteWordingWords, refuseNoteWording, shapeProblems, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builderPlaceLook, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, thisMachine, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles, autoMergeFor, developmentEnvironment, notMergingWhy } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, AGENTS_MODEL_COMMAND, BLOCK_SHAPE, composeNote, doneLines, noteLines, noteWording, noteWordingWords, refuseNoteWording, shapeProblems, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builderPlaceLook, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, thisMachine, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, retryDeploy, DEPLOY_RETRY_LABEL, failureLine, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles, autoMergeFor, developmentEnvironment, notMergingWhy } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, steps, taskIdFrom } from '../shared.ts';
 import { refuseUnrecorded } from './changes.ts';
@@ -324,6 +324,7 @@ function cmdResume(o: Opts, id: string): number {
   if (role === 'builder' || role === 'reviewer' || role === 'analyst') throw new AccError('refused', `${role === 'analyst' ? 'An' : 'A'} ${role} can't resume a builder. A person does that, or autopilot.`);
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
+  if (o.deploy === true) return cmdRetryDeploy(o, paths, config, id.toUpperCase(), actor, by);
   const r = resume(paths, config, id.toUpperCase(), { run, now, env: process.env, accBinDir: accBinDir(), accCommand: accCommand() }, {
     actor, by, message: o.message as string | undefined,
   });
@@ -333,6 +334,23 @@ function cmdResume(o: Opts, id: string): number {
     r.said ? `  It last said: ${clipSaid(r.said, 600)}` : '',
     `  Its output: ${r.log}`,
     tone(`  It finishes with acc done, or blocks. Session ${r.sessionId}, pid ${r.pid}.`, 'dim'),
+  ].filter(Boolean).join('\n'), r);
+  return 0;
+}
+
+/**
+ * Retry with an agent (T-174): acc resume <id> --deploy. Its builder carries on, told which deploy to the
+ * development org failed and why, or that it never deployed; refused, with why, where the command is off.
+ */
+function cmdRetryDeploy(o: Opts, paths: ReturnType<typeof project>['paths'], config: Config, id: string, actor: ReturnType<typeof actorFrom>['actor'], by: string): number {
+  if (o.message !== undefined) throw new AccError('usage', 'acc resume <id> --deploy tells the builder about its deploy itself: leave out --message.');
+  const r = retryDeploy(paths, config, id, { run, now, env: process.env, accBinDir: accBinDir(), accCommand: accCommand() }, { actor, by });
+  out(o, () => [
+    tone(`${DEPLOY_RETRY_LABEL}: ${r.task.id}'s builder carries on in ${r.folder}.`, 'blue'),
+    `  ${failureLine(r.case)}`,
+    r.stopped ? `  Stopped its idle background session ${r.stopped} first, so the conversation runs in one place.` : '',
+    `  Its output: ${r.log}`,
+    tone(`  It deploys again until the deploy passes, or blocks on a failure outside its work. Session ${r.sessionId}, pid ${r.pid}.`, 'dim'),
   ].filter(Boolean).join('\n'), r);
   return 0;
 }
@@ -384,6 +402,10 @@ export const area: CommandArea = {
   acc resume <id> [--message "<text>"]  Carry on a running task whose builder stopped before acc done or acc
                                         block, as when the Mac slept: its own session, in its worktree, with the
                                         rules it was dispatched with. It's told it was cut off, or --message
+  acc resume <id> --deploy              Retry with an agent: a Salesforce task whose deploy to the development
+                                        org failed, or never ran. Its builder deploys again, fixes its own work
+                                        until the deploy and the coverage floor pass, or blocks on a failure
+                                        outside its work. A blocked task, or one in review, goes back to running
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
   acc agents                            The model and effort builders, the planning agent and reviewers run with,
                                         and where each is set. A model nobody set is acc's default for the role:
@@ -425,6 +447,7 @@ export const area: CommandArea = {
     client: { type: 'string' },
     reason: { type: 'string' },
     message: { type: 'string' },
+    deploy: { type: 'boolean', default: false },
     none: { type: 'boolean', default: false },
     // A blocked note's things (T-146), a bullet each time the flag is given.
     item: { type: 'string', multiple: true },
@@ -474,7 +497,7 @@ export const area: CommandArea = {
       return cmdSet({ ...o, reason, ...(asked ? { client: asked } : {}) }, id, 'blocked', noteFrom(o));
     },
     resume: (o, rest) => {
-      if (!rest[0]) throw new AccError('usage', 'acc resume <id> [--message "<text>"]');
+      if (!rest[0]) throw new AccError('usage', 'acc resume <id> [--message "<text>"] | acc resume <id> --deploy');
       return cmdResume(o, rest[0]);
     },
     cleanup: (o, rest) => {
