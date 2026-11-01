@@ -98,7 +98,7 @@ test('Settings offers Share how to join to whoever set the project up, and not i
   assert.deepEqual(share(githubAccount(project, card())), [shareJoinAction(project)]);
   assert.deepEqual(share(githubAccount(project, card({ joined: true }))), []);
   assert.deepEqual(share(githubAccount(project, null)), []);
-  assert.deepEqual(shareJoinAction(project), { command: 'acc.join.share', label: 'Share how to join', icon: 'copy', arg: '/acme', name: 'Copy how a teammate joins Acme', primary: false, disabled: null });
+  assert.deepEqual(shareJoinAction(project), { command: 'acc.join.share', label: 'Share how to join', icon: 'copy', arg: '/acme', name: 'Share how to join Acme: copy its address and three steps for a teammate', primary: false, disabled: null });
 });
 
 test('Share how to join is a command with its params, off with why for a project with no GitHub repo', () => {

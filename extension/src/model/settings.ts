@@ -458,7 +458,7 @@ export function githubAccount(p: ProjectLike, id: IdentityCard | null): GithubAc
 
 /** Share how to join (T-176): copies the repo's address and three steps, for a teammate. */
 export const shareJoinAction = (p: { root: string; name: string }): SettingsAction => ({
-  command: SHARE_JOIN_COMMAND.id, label: 'Share how to join', icon: 'copy', arg: p.root, name: `Copy how a teammate joins ${p.name}`, primary: false, disabled: null,
+  command: SHARE_JOIN_COMMAND.id, label: 'Share how to join', icon: 'copy', arg: p.root, name: `Share how to join ${p.name}: copy its address and three steps for a teammate`, primary: false, disabled: null,
 });
 
 export function githubAccounts(projects: ProjectLike[], identity: (root: string) => IdentityCard | null): GithubAccounts {
