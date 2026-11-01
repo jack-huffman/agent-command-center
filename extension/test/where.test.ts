@@ -11,7 +11,7 @@ import type { Task } from '../../packages/core/src/ledger.ts';
 import { tempDir } from '../../packages/core/test/support.ts';
 import { type EnvWhere, keepWhere, type TicketWhere } from '../../packages/core/src/where-kept.ts';
 import * as logic from '../src/logic/where.ts';
-import { DEPLOYER_WORDS, envCheck, envRows, RECORD_LOOK, ticketDeploy, WHERE_LOOK } from '../src/model/ticket-deploy.ts';
+import { DEPLOYER_WORDS, envCheck, envRows, DEPLOY_STATE_LOOK, ticketDeploy, WHERE_LOOK } from '../src/model/ticket-deploy.ts';
 
 const { WhereReads } = logic;
 const env = (name: string, more: Partial<Environment> = {}): Environment => ({ name, branch: name.toLowerCase(), type: 'sandbox' as Environment['type'], org: `acme-${name.toLowerCase()}`, default: false, protected: false, promotesTo: [], ...more });
@@ -39,19 +39,19 @@ const recorded = (): Task => task({
 test('each row\'s state is acc\'s record: deployed with when and who, deploy failed with why on one line, merged, or not deployed (T-167)', () => {
   const rows = envRows(config, recorded(), null, null, [ENVS[3]!]);
   assert.deepEqual(rows.map((r) => [r.name, r.look, r.at, r.by]), [
-    ['Dev', RECORD_LOOK.deployed, AT, DEPLOYER_WORDS.builder], ['QA', RECORD_LOOK.deployed, AT, DEPLOYER_WORDS.guide],
-    ['UAT', RECORD_LOOK.failed, AT, DEPLOYER_WORDS.guide], ['Production', RECORD_LOOK.merged, AT, null], ['Hotfix', RECORD_LOOK['not-deployed'], null, null],
+    ['Dev', DEPLOY_STATE_LOOK.deployed, AT, DEPLOYER_WORDS.builder], ['QA', DEPLOY_STATE_LOOK.deployed, AT, DEPLOYER_WORDS.guide],
+    ['UAT', DEPLOY_STATE_LOOK.failed, AT, DEPLOYER_WORDS.guide], ['Production', DEPLOY_STATE_LOOK.merged, AT, null], ['Hotfix', DEPLOY_STATE_LOOK['not-deployed'], null, null],
   ]);
   assert.deepEqual([DEPLOYER_WORDS.builder, DEPLOYER_WORDS.guide], ['by the builder', 'by the deploy guide']);
   assert.equal(rows[2]!.detail, 'The deploy to acme-uat failed (job 0Af2), 1 problem: Helper.cls:3: Missing ;', 'failed: why, on one line');
   assert.equal(rows[3]!.detail, 'In the production branch, with no deploy on record');
   assert.deepEqual(rows.map((r) => r.check), [null, null, null, null, null], 'no check yet: no note');
-  assert.deepEqual(Object.values(RECORD_LOOK).map((l) => [l.label, l.tone]), [['Deployed', 'blue'], ['Deploy failed', 'orange'], ['Merged', 'blue'], ['Not deployed', 'neutral']], 'orange against blue, each with words');
+  assert.deepEqual(Object.values(DEPLOY_STATE_LOOK).map((l) => [l.label, l.tone]), [['Deployed', 'blue'], ['Deploy failed', 'orange'], ['Merged', 'blue'], ['Not deployed', 'neutral']], 'orange against blue, each with words');
 });
 
 test('edge case: the development environment merged with no deploy is merged, and its merge line is not said twice; before there\'s work, every row is not deployed (T-167)', () => {
   const dev = envRows(config, task())[0]!;
-  assert.deepEqual([dev.look, dev.at, dev.merged], [RECORD_LOOK.merged, null, null]);
+  assert.deepEqual([dev.look, dev.at, dev.merged], [DEPLOY_STATE_LOOK.merged, null, null]);
   const none = envRows(config, task({ pr: null, run: null, state: 'todo' }));
   assert.deepEqual(none.map((r) => r.look.label), ['Not deployed', 'Not deployed', 'Not deployed', 'Not deployed']);
   assert.equal(none[0]!.merged?.words, 'No work to merge yet');

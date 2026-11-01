@@ -24,7 +24,8 @@ import type { RepoPaths } from './paths.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
 import { sfComponent } from './sf-metadata.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
-import { listLinesAt, type TaskCommand, ticketCommits } from './task-deploy.ts';
+import type { TaskCommand } from './task-command.ts';
+import { listLinesAt, ticketCommits } from './task-deploy.ts';
 import { type EnvWhere, keepWhere, type Reading, ticketEnvironments, type TicketWhere } from './where-kept.ts';
 
 /** A file the ticket changes: its path, and its content's git blob, or null for a file it deletes. */

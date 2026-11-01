@@ -21,7 +21,7 @@ import { reasonInWords } from '../logic/relayed.ts';
 import { KEY, type Look, type ModelArea, short } from './shared.ts';
 
 /** An environment's state by acc's record (T-167): blue where it got there, orange where its deploy failed, quiet where it's not deployed. */
-export const RECORD_LOOK: Record<RecordState, Look> = {
+export const DEPLOY_STATE_LOOK: Record<RecordState, Look> = {
   deployed: { label: 'Deployed', icon: 'pass', tone: 'blue' },
   failed: { label: 'Deploy failed', icon: 'warning', tone: 'orange' },
   merged: { label: 'Merged', icon: 'git-merge', tone: 'blue' },
@@ -166,7 +166,7 @@ export function envRows(config: Pick<Config, 'environments' | 'profile'>, t: Pic
     const merge = t.pr?.state === 'merged' ? 'merged' : t.state === 'running' ? 'building' : t.pr || t.run?.branch ? 'open' : 'none';
     const words = { merged: `Merged into ${e.branch}`, open: `Not merged into ${e.branch} yet`, building: 'Being built', none: 'No work to merge yet' }[merge];
     return {
-      name: e.name, branch: e.branch, org: e.org, look: RECORD_LOOK[rec.state], at: rec.at, by: rec.by ? DEPLOYER_WORDS[rec.by] : null,
+      name: e.name, branch: e.branch, org: e.org, look: DEPLOY_STATE_LOOK[rec.state], at: rec.at, by: rec.by ? DEPLOYER_WORDS[rec.by] : null,
       detail: rec.state === 'failed' ? reasonInWords(rec.reason) : rec.state === 'merged' ? `In the ${e.branch} branch, with no deploy on record` : null,
       merged: i === 0 && rec.state !== 'merged' ? { look: MERGE_LOOK[merge], words } : null,
       next: e.branch === next ? NEXT_LOOK : null, busy: deploying === e.branch ? BUSY_LOOK : null,

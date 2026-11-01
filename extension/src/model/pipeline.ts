@@ -16,7 +16,7 @@ import type { Look, ProjectLike } from './shared.ts';
 /** An environment's place in the pipeline, with an icon and a label: the development one in blue, the rest neutral. */
 export const PIPELINE_ROLE_LOOK = {
   development: { label: 'Development: work merges here', icon: 'git-merge', tone: 'blue' },
-  production: { label: 'Production: a person deploys', icon: 'shield', tone: 'neutral' },
+  production: { label: "Production: an agent deploys after you type the org's name", icon: 'shield', tone: 'neutral' },
   protected: { label: 'Protected: a person merges', icon: 'lock', tone: 'neutral' },
   further: { label: 'Further: deployed by an agent on your pick', icon: 'arrow-right', tone: 'neutral' },
 } as const satisfies Record<string, Look>;

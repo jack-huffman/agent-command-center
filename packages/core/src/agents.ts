@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { AccError, type Runner } from './exec.ts';
 import { type AgentProfile, type AgentRole, type Config, DEFAULT_MODEL, type Effort, isEffort, MODEL_NAME, noProfile, ROLE_DEFAULTS } from './config.ts';
 import { checkEffortName } from './efforts.ts';
-import type { TaskCommand } from './task-deploy.ts';
+import type { TaskCommand } from './task-command.ts';
 import { writeAtomic } from './atomic.ts';
 import { autoMergeDefault } from './pipeline.ts';
 

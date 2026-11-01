@@ -127,7 +127,7 @@ function trackerStep(m: ConnectModel): Child[] {
 
 /** Step 2 (T-140): its site or account, and signing in; once signed in, who as, with Sign in again. */
 function siteStep(m: ConnectModel, test: () => void): Child[] {
-  const testButton = button(m.method.test, 'plug', test, m.signIn.look.tone === 'blue' && m.signIn.look.icon === 'pass' ? '' : 'primary');
+  const testButton = button(m.method.test, 'plug', test, m.signIn.look.state === 'signed-in' ? '' : 'primary');
   testButton.disabled = !m.signIn.canTest;
   if (m.signIn.why) testButton.title = m.signIn.why.label;
   const signIn: Child[] = m.signIn.editing ? [
