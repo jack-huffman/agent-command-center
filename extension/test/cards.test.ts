@@ -241,8 +241,8 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   // An analysis that names no files isn't told it has none.
   assert.deepEqual(card('AV-12').files, { label: 'Its files aren\'t known: its analysis names no files', icon: 'info', tone: 'neutral' });
   // Shares files but isn't held: said before Dispatch, and on a task that started beside another.
-  assert.deepEqual(card('AV-8').files, { label: 'Shares files with AV-1: src/a.ts', icon: 'files', tone: 'neutral' });
-  assert.deepEqual(card('AV-1').files, { label: 'Shares files with AV-9: lib/b.ts', icon: 'files', tone: 'neutral' });
+  assert.deepEqual(card('AV-8').files, { label: 'Shares files with AV-1: src/a.ts', icon: 'files', tone: 'neutral', state: 'shares' });
+  assert.deepEqual(card('AV-1').files, { label: 'Shares files with AV-9: lib/b.ts', icon: 'files', tone: 'neutral', state: 'shares' });
   // A start that failed needs you: the bell, in orange, and on the Overview with Dispatch anyway.
   assert.deepEqual(card('AV-10').files, { label: 'Needs you: autopilot couldn\'t start it: Claude Code doesn\'t trust /r yet.', icon: 'bell', tone: 'orange' });
   const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });

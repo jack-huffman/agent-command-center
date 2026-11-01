@@ -168,6 +168,7 @@ test('Test connection signs in for every project on the site, as the tick says, 
   await settle();
   let m = h.model();
   assert.deepEqual([m.signIn.look.label, m.signIn.look.icon, m.signIn.look.tone, m.signIn.editing], ['Signed in as Jordan Kim, for every project on acme.atlassian.net', 'pass', 'blue', false]);
+  assert.equal(m.signIn.look.state, 'signed-in', 'the page decides signed in by this state, not by the pass icon (T-170)');
   assert.equal(m.share.shown, false, 'signed in, there\'s nothing to tick');
   assert.deepEqual([...h.secrets.keys()], ['acc.cred:site:jira:acme.atlassian.net'], 'kept under the site\'s key (GH-79)');
   assert.deepEqual(JSON.parse(h.secrets.get('acc.cred:site:jira:acme.atlassian.net')!), { kind: 'jira', method: 'token', email: EMAIL, token: TOKEN });

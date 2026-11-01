@@ -1065,6 +1065,52 @@ export const CASES: Case[] = [
     },
   },
   {
+    // A page's script can't make a trusted key press. What it can show: the controls are the ones a browser activates with Enter
+    // or Space (a summary, a radio, a button), and the page takes neither key, so the browser's own activation runs.
+    name: 'task page: a banner opens with Enter and Space, and a blocked note\'s choice is picked and sent by the keyboard (T-170)',
+    page: 'ticket-banners',
+    async run(t) {
+      const banner = (id: string): HTMLDetailsElement => t.find<HTMLDetailsElement>(`.ticket-top .banner[data-banner="${id}"]`);
+      const keyUp = async (target: HTMLElement, key: string): Promise<KeyboardEvent> => {
+        const ev = new KeyboardEvent('keyup', { key, bubbles: true, cancelable: true });
+        target.dispatchEvent(ev);
+        await t.settle();
+        return ev;
+      };
+      const head = t.find<HTMLElement>('summary', banner('files'));
+      t.check('its line is a summary, which a browser opens with Enter and Space', head.tagName === 'SUMMARY', head.tagName);
+      head.focus();
+      t.check('Enter on it is not taken by the page', !(await press(t, head, 'Enter')).defaultPrevented);
+      t.check('Space on it is not taken by the page', !(await press(t, head, ' ')).defaultPrevented && !(await keyUp(head, ' ')).defaultPrevented);
+      // The activation a browser makes of Enter, and of Space as it is let go, on a focused summary.
+      head.click();
+      await t.settle();
+      t.check('Enter opens it, and its files show', banner('files').open && t.all('.banner-lines li', banner('files')).length === 3);
+      t.check('focus stays on its line', document.activeElement === head, document.activeElement?.className);
+      head.click();
+      await t.settle();
+      t.check('Space shuts it again', !banner('files').open);
+      const blocked = t.find<HTMLElement>('summary', banner('blocked'));
+      blocked.focus();
+      blocked.click();
+      await t.settle();
+      const radio = (): HTMLInputElement => t.find<HTMLInputElement>('.banner-choice input[type="radio"]', banner('blocked'));
+      const send = (): HTMLButtonElement => t.find<HTMLButtonElement>('.banner-send .btn', banner('blocked'));
+      t.check('Send is off until a choice is made', send().disabled);
+      radio().focus();
+      t.check('Space on a choice is not taken by the page', !(await keyUp(radio(), ' ')).defaultPrevented);
+      radio().click();
+      await t.settle();
+      t.check('Space picks a choice, and Send goes on', radio().checked && !send().disabled);
+      send().focus();
+      t.check('Enter on Send is not taken by the page', !(await press(t, send(), 'Enter')).defaultPrevented && send().tagName === 'BUTTON');
+      send().click();
+      await t.settle();
+      const asked = t.sent('blocked-answer').at(-1);
+      t.check('Enter on Send gives the answer to the builder', asked?.task === 'ACME-12' && asked?.item === 0 && /The answer: a\)/.test(String(asked?.text)), asked);
+    },
+  },
+  {
     name: 'task page: its tabs open on the plan that needs you, say so in words, move by arrow keys, Home and End, and follow a link (T-134)',
     page: 'ticket-plan-needs-you',
     async run(t) {
@@ -2944,6 +2990,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'a note is drawn as one paragraph again', file: 'banners.ts', find: "if (!items.length) return el('div', 'banner-detail-text', md(n.text));", replace: "if (n) return el('div', 'banner-detail-text', md(n.text));", kills: [caseNamed('task page: a blocked note recorded as one paragraph')] },
   // The banners above a ticket's tabs (T-168): one drawn open by default, and a Send that gives the builder nothing.
   { name: 'a banner is drawn open by default', file: 'banners.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = true;', kills: [caseNamed('task page: its banners start closed')] },
+  { name: 'a banner\'s line takes Enter, so the browser does not open it', file: 'banners.ts', find: '  summary.dataset.keep = key;', replace: "  summary.dataset.keep = key;\n  summary.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });", kills: [caseNamed('task page: a banner opens with Enter and Space')] },
   { name: 'a banner\'s Send gives the builder nothing', file: 'banners.ts', find: "api.postMessage({ type: 'blocked-answer',", replace: "void ({ type: 'blocked-answer',", kills: [caseNamed('task page: its banners start closed')] },
   // Set up cloud builders (T-145): Next on before its step passes, the token kept in the page, and a field's button on before what's typed fits.
   { name: 'cloud setup: Next goes on before the step passes', file: 'cloud-setup.ts', find: 'go.disabled = m.next ? !m.next.can : !m.cancel.can;', replace: 'go.disabled = false;', kills: [caseNamed('cloud setup: Next stays off')] },

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TicketModel } from '../src/model/task-page.ts';
 import type { EnvRow, TicketDeploy } from '../src/model/ticket-deploy.ts';
-import { BUSY_LOOK, RECORD_LOOK as STATE, NEXT_LOOK, WHERE_LOOK } from '../src/model/ticket-deploy.ts';
+import { BUSY_LOOK, DEPLOY_STATE_LOOK as STATE, NEXT_LOOK, WHERE_LOOK } from '../src/model/ticket-deploy.ts';
 import { RECORD_LOOK, type TicketRecords } from '../src/model/record-changes.ts';
 import { pageDom, type PageElement } from './page-dom.ts';
 

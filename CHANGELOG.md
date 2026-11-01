@@ -26,6 +26,9 @@ as the notes.
   banners closed by default, each with a one-line summary (D-250). Open one to
   see its detail. A blocked builder's question shows its options and your own
   words, and Send to its builder gives it the answer.
+- Smaller fixes: the Testing tab no longer repeats its name above its content,
+  and Settings' Pipeline says an agent deploys to Production after you type the
+  org's name.
 
 ## 0.55.0
 
